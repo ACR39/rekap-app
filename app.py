@@ -42,6 +42,11 @@ HARI = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
          "Agustus", "September", "Oktober", "November", "Desember"]
 MAKS_HARI = 731
+# Pilihan di formulir pegawai. Ubah daftar ini kalau sebutan di instansi Anda berbeda.
+GOLONGAN = ["I/a", "I/b", "I/c", "I/d", "II/a", "II/b", "II/c", "II/d",
+            "III/a", "III/b", "III/c", "III/d", "IV/a", "IV/b", "IV/c", "IV/d", "IV/e"]
+ESELON = ["I.a", "I.b", "II.a", "II.b", "III.a", "III.b", "IV.a", "IV.b", "Non eselon"]
+JENIS_JABATAN = ["Struktural", "Fungsional", "Pelaksana"]
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
 
 
@@ -203,6 +208,16 @@ def terisi(tgl: str, kid: str, pid: str) -> bool:
 TANPA = "Tanpa bidang"
 
 
+def nama_lengkap(p: dict) -> str:
+    depan = (p.get("gelar_depan") or "").strip()
+    belakang = (p.get("gelar_belakang") or "").strip()
+    return " ".join(x for x in (depan, p["nama"]) if x) + (f", {belakang}" if belakang else "")
+
+
+def aktif(p: dict) -> bool:
+    return p.get("aktif", True)
+
+
 def nama_bidang(p: dict) -> str:
     peta = {b["id"]: b["nama"] for b in D["bidang"]}
     return peta.get(p.get("bidang"), TANPA)
@@ -231,14 +246,15 @@ def judul_bidang(nama, jumlah):
 
 def pilih_pekerja(kunci: str):
     """Pilihan bidang untuk menyaring pekerja. Tanpa bidang, semua pekerja."""
+    semua = [p for p in D["pekerja"] if aktif(p)]
     if not D["bidang"]:
-        return D["pekerja"]
-    ada_lain = any(nama_bidang(p) == TANPA for p in D["pekerja"])
+        return semua
+    ada_lain = any(nama_bidang(p) == TANPA for p in semua)
     opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + ([TANPA] if ada_lain else [])
     pilih = st.selectbox("Bidang", opsi, key=kunci)
     if pilih == "Semua bidang":
-        return D["pekerja"]
-    return [p for p in D["pekerja"] if nama_bidang(p) == pilih]
+        return semua
+    return [p for p in semua if nama_bidang(p) == pilih]
 
 
 if "tgl_in" not in st.session_state:
@@ -315,10 +331,10 @@ with tab_tgl:
                     judul_bidang(judul, len(anggota))
                 for p in anggota:
                     baris = st.columns(lebar)
-                    baris[0].write(p["nama"])
+                    baris[0].write(nama_lengkap(p))
                     for i, k in enumerate(kats):
                         pilihan[(k["id"], p["id"])] = baris[i + 1].checkbox(
-                            f"{p['nama']} - {k['nama']}",
+                            f"{nama_lengkap(p)} - {k['nama']}",
                             value=terisi(tgl, k["id"], p["id"]),
                             key=f"c_{tgl}_{k['id']}_{p['id']}",
                             label_visibility="collapsed",
@@ -402,11 +418,11 @@ with tab_lap:
                                 f'<span class="chip">{html.escape(label(x))}</span>'
                                 for x in per[p["id"]])
                             st.markdown(
-                                f'<div class="nama">{html.escape(p["nama"])} '
+                                f'<div class="nama">{html.escape(nama_lengkap(p))} '
                                 f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>'
                                 f'{chips}<div style="height:.2rem"></div>',
                                 unsafe_allow_html=True)
-                        baris_teks.append(f"{p['nama']} belum mengisi: "
+                        baris_teks.append(f"{nama_lengkap(p)} belum mengisi: "
                                           + "; ".join(label(x) for x in per[p["id"]]))
                 teks = "\n".join(baris_teks)
                 st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
@@ -454,43 +470,94 @@ def editor_nama(judul: str, kunci: str, hint: str, buka: bool = False):
                 selesai_simpan("Tersimpan.")
 
 
-def editor_pekerja(buka: bool = True):
-    with st.expander(f"Pekerja ({len(D['pekerja'])})", expanded=buka):
-        st.caption("Orang yang wajib mengisi.")
-        peta = {b["id"]: b["nama"] for b in D["bidang"]}
-        balik = {v: k for k, v in peta.items()}
-        kolom = ["id", "Nama"] + (["Bidang"] if peta else [])
-        baris = [(p["id"], p["nama"]) + ((peta.get(p.get("bidang")),) if peta else ())
-                 for p in D["pekerja"]]
-        df = pd.DataFrame(baris, columns=kolom)
-        cfg = {"id": None, "Nama": st.column_config.TextColumn("Nama", width="large")}
-        if peta:
-            cfg["Bidang"] = st.column_config.SelectboxColumn("Bidang", options=list(peta.values()),
-                                                             width="medium")
-        ed = st.data_editor(df, key=f"ed_pekerja_{versi()}", num_rows="dynamic",
-                            hide_index=True, disabled=["id"], column_config=cfg)
-        if st.button("Simpan", key="simpan_pekerja", type="primary"):
-            lama = {p["id"]: p for p in D["pekerja"]}
-            baru = []
-            for _, r in ed.iterrows():
-                nama = teks(r["Nama"])
+def idx(daftar, nilai) -> int:
+    return daftar.index(nilai) if nilai in daftar else 0
+
+
+def form_pegawai():
+    with st.expander(f"Pegawai ({len(D['pekerja'])})", expanded=True):
+        if D["pekerja"]:
+            baris = []
+            for p in D["pekerja"]:
+                r = {"Nama": nama_lengkap(p), "NIP": p.get("nip", "")}
+                if D["bidang"]:
+                    r["Bidang"] = nama_bidang(p)
+                r["Jabatan"] = p.get("jabatan", "")
+                r["Aktif"] = "Ya" if aktif(p) else "Tidak"
+                baris.append(r)
+            st.dataframe(pd.DataFrame(baris), hide_index=True)
+
+        by_id = {p["id"]: p for p in D["pekerja"]}
+        pilih = st.selectbox("Tambah atau ubah pegawai", [""] + list(by_id),
+                             format_func=lambda i: "Tambah pegawai baru" if not i else nama_lengkap(by_id[i]),
+                             key=f"pil_pg_{versi()}")
+        p = by_id.get(pilih, {})
+        st.markdown("**Form Pegawai**")
+        pilih_teks = lambda v: "Pilih..." if not v else v
+        with st.form(f"form_pg_{pilih or 'baru'}_{versi()}", clear_on_submit=not pilih):
+            k1, k2 = st.columns([3, 2])
+            nip = k1.text_input("NIP Pegawai", value=p.get("nip", ""), placeholder="NIP Pegawai")
+            aktif_v = k2.radio("Aktif", ["Ya", "Tidak"], index=0 if aktif(p) else 1, horizontal=True)
+            g1, g2, g3 = st.columns([1.3, 4, 1.5])
+            gd = g1.text_input("Gelar depan", value=p.get("gelar_depan", ""), placeholder="Gelar depan")
+            nama = g2.text_input("Nama pegawai", value=p.get("nama", ""), placeholder="Nama pegawai")
+            gb = g3.text_input("Gelar belakang", value=p.get("gelar_belakang", ""),
+                               placeholder="Gelar belakang")
+            h1, h2, h3, h4 = st.columns([2, 1.4, 1.8, 3])
+            gol = h1.selectbox("Golongan", [""] + GOLONGAN, format_func=pilih_teks,
+                               index=idx([""] + GOLONGAN, p.get("golongan", "")))
+            esl = h2.selectbox("Eselon", [""] + ESELON, format_func=pilih_teks,
+                               index=idx([""] + ESELON, p.get("eselon", "")))
+            jns = h3.selectbox("Jenis jabatan", [""] + JENIS_JABATAN, format_func=pilih_teks,
+                               index=idx([""] + JENIS_JABATAN, p.get("jenis_jabatan", "")))
+            jab = h4.text_input("Jabatan pegawai", value=p.get("jabatan", ""),
+                                placeholder="Jabatan pegawai")
+            bid = ""
+            if D["bidang"]:
+                peta = {b["id"]: b["nama"] for b in D["bidang"]}
+                opsi = [""] + list(peta)
+                bid = st.selectbox("Bidang", opsi, index=idx(opsi, p.get("bidang", "")),
+                                   format_func=lambda i: TANPA if not i else peta[i])
+            yakin = st.checkbox("Ya, hapus pegawai ini") if pilih else False
+            t1, t2, t3, _ = st.columns([1, 1, 1, 3])
+            simpan = t1.form_submit_button("Simpan", type="primary")
+            kembali = t2.form_submit_button("Kembali")
+            hapus = t3.form_submit_button("Hapus") if pilih else False
+
+            if kembali:
+                st.session_state.ver = versi() + 1
+                st.rerun()
+            if hapus:
+                if not yakin:
+                    st.error("Centang dulu \"Ya, hapus pegawai ini\".")
+                else:
+                    D["pekerja"] = [x for x in D["pekerja"] if x["id"] != pilih]
+                    selesai_simpan("Dihapus.")
+            if simpan:
+                nama, nip = nama.strip(), nip.strip()
                 if not nama:
-                    continue
-                p = dict(lama.get(teks(r["id"]), {}))
-                p["id"] = teks(r["id"]) or uuid.uuid4().hex[:8]
-                p["nama"] = nama
-                if peta:
-                    b = balik.get(teks(r["Bidang"]))
-                    if b:
-                        p["bidang"] = b
+                    st.error("Nama pegawai wajib diisi.")
+                elif nip and any(x.get("nip") == nip and x["id"] != pilih for x in D["pekerja"]):
+                    st.error("NIP itu sudah dipakai pegawai lain.")
+                else:
+                    baru = dict(p) if pilih else {"id": uuid.uuid4().hex[:8]}
+                    isi = {"nama": nama, "nip": nip, "gelar_depan": gd.strip(),
+                           "gelar_belakang": gb.strip(), "golongan": gol, "eselon": esl,
+                           "jenis_jabatan": jns, "jabatan": jab.strip(), "bidang": bid}
+                    for kunci, v in isi.items():
+                        if v or kunci == "nama":
+                            baru[kunci] = v
+                        else:
+                            baru.pop(kunci, None)
+                    if aktif_v == "Tidak":
+                        baru["aktif"] = False
                     else:
-                        p.pop("bidang", None)
-                baru.append(p)
-            if ada_kembar([p["nama"] for p in baru]):
-                st.error("Ada nama yang kembar. Ubah salah satunya.")
-            else:
-                D["pekerja"] = baru
-                selesai_simpan("Tersimpan.")
+                        baru.pop("aktif", None)
+                    if pilih:
+                        D["pekerja"] = [baru if x["id"] == pilih else x for x in D["pekerja"]]
+                    else:
+                        D["pekerja"].append(baru)
+                    selesai_simpan("Tersimpan.")
 
 
 def editor_libur():
@@ -548,10 +615,10 @@ def cadangan():
 
 
 with tab_kelola:
-    st.caption("Klik sel untuk mengubah. Untuk menambah, isi baris kosong di paling bawah. "
-               "Untuk menghapus, centang kotak di kiri baris lalu tekan ikon tempat sampah. "
-               "Tekan **Simpan** setelah selesai.")
-    editor_pekerja(buka=True)
+    st.caption("Pegawai diisi lewat formulir. Tabel lain (Bidang, Kategori, Tanggal dikecualikan) "
+               "diubah langsung: klik sel, isi baris kosong di bawah untuk menambah, centang kotak "
+               "di kiri baris lalu tekan ikon tempat sampah untuk menghapus, lalu tekan **Simpan**.")
+    form_pegawai()
     editor_nama("Bidang", "bidang", "Pengelompokan pekerja, misalnya bidang atau seksi. "
                 "Boleh dikosongkan kalau tidak diperlukan. Setelah bidang disimpan, "
                 "pilih bidang untuk tiap pekerja di tabel Pekerja.")
