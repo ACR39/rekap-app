@@ -12,6 +12,7 @@ import os
 import uuid
 from datetime import date, timedelta
 
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -412,123 +413,109 @@ with tab_lap:
                 st.code(teks, language=None)
 
 # ----------------------------------------------------------------------- kelola
-def kelola_daftar(judul: str, kunci: str, hint: str):
-    with st.container(border=True):
-        st.subheader(judul)
+def versi() -> int:
+    return st.session_state.get("ver", 0)
+
+
+def selesai_simpan(pesan: str):
+    """Simpan ke penyimpanan. Kalau berhasil, kosongkan keadaan editor dan muat ulang."""
+    if commit(pesan):
+        st.session_state.ver = versi() + 1
+        st.rerun()
+
+
+def teks(x) -> str:
+    return "" if pd.isna(x) else str(x).strip()
+
+
+def ada_kembar(nama_nama) -> bool:
+    kecil = [n.lower() for n in nama_nama]
+    return len(set(kecil)) != len(kecil)
+
+
+def editor_nama(judul: str, kunci: str, hint: str, buka: bool = False):
+    """Tabel satu kolom (nama) untuk bidang dan kategori."""
+    with st.expander(f"{judul} ({len(D[kunci])})", expanded=buka):
         st.caption(hint)
-        daftar = D[kunci]
-        pakai_bidang = kunci == "pekerja" and bool(D["bidang"])
-        if daftar:
-            for x in daftar:
-                st.write("• " + x["nama"] + (f" · {nama_bidang(x)}" if pakai_bidang else ""))
-        else:
-            st.write("Belum ada.")
+        df = pd.DataFrame([(x["id"], x["nama"]) for x in D[kunci]], columns=["id", "Nama"])
+        ed = st.data_editor(df, key=f"ed_{kunci}_{versi()}", num_rows="dynamic",
+                            hide_index=True, disabled=["id"],
+                            column_config={"id": None, "Nama": st.column_config.TextColumn("Nama", width="large")})
+        if st.button("Simpan", key=f"simpan_{kunci}", type="primary"):
+            baru = []
+            for _, r in ed.iterrows():
+                nama = teks(r["Nama"])
+                if nama:
+                    baru.append({"id": teks(r["id"]) or uuid.uuid4().hex[:8], "nama": nama})
+            if ada_kembar([x["nama"] for x in baru]):
+                st.error("Ada nama yang kembar. Ubah salah satunya.")
+            else:
+                D[kunci] = baru
+                selesai_simpan("Tersimpan.")
 
-        peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
-        with st.form(f"tambah_{kunci}", clear_on_submit=True):
-            nama = st.text_input("Nama baru")
-            bid = ""
-            if pakai_bidang:
-                bid = st.selectbox("Bidang", [""] + list(peta_b),
-                                   format_func=lambda i: TANPA if not i else peta_b[i])
-            if st.form_submit_button("Tambah"):
-                nama = nama.strip()
+
+def editor_pekerja(buka: bool = True):
+    with st.expander(f"Pekerja ({len(D['pekerja'])})", expanded=buka):
+        st.caption("Orang yang wajib mengisi.")
+        peta = {b["id"]: b["nama"] for b in D["bidang"]}
+        balik = {v: k for k, v in peta.items()}
+        kolom = ["id", "Nama"] + (["Bidang"] if peta else [])
+        baris = [(p["id"], p["nama"]) + ((peta.get(p.get("bidang")),) if peta else ())
+                 for p in D["pekerja"]]
+        df = pd.DataFrame(baris, columns=kolom)
+        cfg = {"id": None, "Nama": st.column_config.TextColumn("Nama", width="large")}
+        if peta:
+            cfg["Bidang"] = st.column_config.SelectboxColumn("Bidang", options=list(peta.values()),
+                                                             width="medium")
+        ed = st.data_editor(df, key=f"ed_pekerja_{versi()}", num_rows="dynamic",
+                            hide_index=True, disabled=["id"], column_config=cfg)
+        if st.button("Simpan", key="simpan_pekerja", type="primary"):
+            lama = {p["id"]: p for p in D["pekerja"]}
+            baru = []
+            for _, r in ed.iterrows():
+                nama = teks(r["Nama"])
                 if not nama:
-                    st.error("Nama tidak boleh kosong.")
-                elif any(x["nama"].lower() == nama.lower() for x in daftar):
-                    st.error("Nama itu sudah ada.")
-                else:
-                    item = {"id": uuid.uuid4().hex[:8], "nama": nama}
-                    if bid:
-                        item["bidang"] = bid
-                    daftar.append(item)
-                    if commit("Ditambahkan."):
-                        st.rerun()
-
-        if pakai_bidang and daftar:
-            nama_p = {x["id"]: x["nama"] for x in daftar}
-            with st.form("atur_bidang"):
-                pid_b = st.selectbox("Pindahkan pekerja ke bidang", list(nama_p),
-                                     format_func=lambda i: nama_p[i])
-                bid_b = st.selectbox("Bidang tujuan", [""] + list(peta_b),
-                                     format_func=lambda i: TANPA if not i else peta_b[i])
-                if st.form_submit_button("Simpan bidang"):
-                    for x in daftar:
-                        if x["id"] == pid_b:
-                            if bid_b:
-                                x["bidang"] = bid_b
-                            else:
-                                x.pop("bidang", None)
-                    if commit("Bidang disimpan."):
-                        st.rerun()
-
-        if daftar:
-            opsi = {x["id"]: x["nama"] for x in daftar}
-            with st.form(f"ubah_{kunci}"):
-                pid = st.selectbox("Pilih untuk diubah atau dihapus", list(opsi),
-                                   format_func=lambda i: opsi[i])
-                baru = st.text_input("Nama baru (untuk Ubah nama)")
-                yakin = st.checkbox("Ya, hapus yang dipilih (untuk Hapus)")
-                k1, k2 = st.columns(2)
-                ubah = k1.form_submit_button("Ubah nama")
-                hapus = k2.form_submit_button("Hapus")
-                if ubah:
-                    baru = baru.strip()
-                    if not baru:
-                        st.error("Isi nama baru dulu.")
-                    elif any(x["id"] != pid and x["nama"].lower() == baru.lower() for x in daftar):
-                        st.error("Nama itu sudah ada.")
+                    continue
+                p = dict(lama.get(teks(r["id"]), {}))
+                p["id"] = teks(r["id"]) or uuid.uuid4().hex[:8]
+                p["nama"] = nama
+                if peta:
+                    b = balik.get(teks(r["Bidang"]))
+                    if b:
+                        p["bidang"] = b
                     else:
-                        for x in daftar:
-                            if x["id"] == pid:
-                                x["nama"] = baru
-                        if commit("Nama diubah."):
-                            st.rerun()
-                if hapus:
-                    if not yakin:
-                        st.error("Centang dulu \"Ya, hapus\" untuk menghapus.")
-                    else:
-                        D[kunci] = [x for x in daftar if x["id"] != pid]
-                        if commit("Dihapus."):
-                            st.rerun()
+                        p.pop("bidang", None)
+                baru.append(p)
+            if ada_kembar([p["nama"] for p in baru]):
+                st.error("Ada nama yang kembar. Ubah salah satunya.")
+            else:
+                D["pekerja"] = baru
+                selesai_simpan("Tersimpan.")
 
 
-with tab_kelola:
-    kelola_daftar("Bidang", "bidang", "Pengelompokan pekerja, misalnya bidang atau seksi. "
-                  "Boleh dikosongkan kalau tidak diperlukan.")
-    kelola_daftar("Pekerja", "pekerja", "Orang yang wajib mengisi.")
-    kelola_daftar("Kategori", "kategori", "Jenis isian, misalnya laporan harian.")
-
-    with st.container(border=True):
-        st.subheader("Tanggal dikecualikan")
+def editor_libur():
+    with st.expander(f"Tanggal dikecualikan ({len(D['libur'])})"):
         st.caption("Tanggal merah atau hari lain yang tidak perlu diisi. "
                    "Tidak dihitung sebagai belum mengisi.")
-        if D["libur"]:
-            for t in sorted(D["libur"]):
-                ket = D["libur"][t]
-                st.write("• " + fmt(date.fromisoformat(t)) + (f" · {ket}" if ket else ""))
-        else:
-            st.write("Belum ada.")
-        with st.form("tambah_libur", clear_on_submit=True):
-            l1, l2 = st.columns([2, 3])
-            tl = l1.date_input("Tanggal", value=jumat_terakhir(date.today()), format="DD/MM/YYYY")
-            kl = l2.text_input("Keterangan (boleh kosong)", placeholder="Contoh: Hari Raya")
-            if st.form_submit_button("Tambah"):
-                D["libur"][tl.isoformat()] = kl.strip()
-                if commit("Ditambahkan."):
-                    st.rerun()
-        if D["libur"]:
-            with st.form("hapus_libur"):
-                hapus_t = st.multiselect("Hapus tanggal", sorted(D["libur"]),
-                                         format_func=lambda t: fmt(date.fromisoformat(t)))
-                if st.form_submit_button("Hapus yang dipilih"):
-                    for t in hapus_t:
-                        D["libur"].pop(t, None)
-                    if hapus_t and commit("Dihapus."):
-                        st.rerun()
+        df = pd.DataFrame([(date.fromisoformat(t), D["libur"][t]) for t in sorted(D["libur"])],
+                          columns=["Tanggal", "Keterangan"])
+        ed = st.data_editor(df, key=f"ed_libur_{versi()}", num_rows="dynamic", hide_index=True,
+                            column_config={
+                                "Tanggal": st.column_config.DateColumn("Tanggal", format="DD/MM/YYYY"),
+                                "Keterangan": st.column_config.TextColumn("Keterangan", width="large"),
+                            })
+        if st.button("Simpan", key="simpan_libur", type="primary"):
+            baru = {}
+            for _, r in ed.iterrows():
+                if pd.isna(r["Tanggal"]):
+                    continue
+                baru[pd.to_datetime(r["Tanggal"]).date().isoformat()] = teks(r["Keterangan"])
+            D["libur"] = baru
+            selesai_simpan("Tersimpan.")
 
-    with st.container(border=True):
-        st.subheader("Cadangan dan pindah data")
+
+def cadangan():
+    with st.expander("Cadangan dan pindah data"):
         st.caption("Unduh seluruh data sebagai file, atau muat file data dari tempat lain. "
                    "Memuat file akan **mengganti semua data** yang ada sekarang.")
         st.download_button("Unduh data.json",
@@ -557,8 +544,19 @@ with tab_kelola:
                         for kunci, awal in data_kosong().items():
                             baru.setdefault(kunci, awal)
                         st.session_state.data = baru
-                        if commit("Data dimuat."):
-                            st.rerun()
+                        selesai_simpan("Data dimuat.")
 
+
+with tab_kelola:
+    st.caption("Klik sel untuk mengubah. Untuk menambah, isi baris kosong di paling bawah. "
+               "Untuk menghapus, centang kotak di kiri baris lalu tekan ikon tempat sampah. "
+               "Tekan **Simpan** setelah selesai.")
+    editor_pekerja(buka=True)
+    editor_nama("Bidang", "bidang", "Pengelompokan pekerja, misalnya bidang atau seksi. "
+                "Boleh dikosongkan kalau tidak diperlukan. Setelah bidang disimpan, "
+                "pilih bidang untuk tiap pekerja di tabel Pekerja.")
+    editor_nama("Kategori", "kategori", "Jenis isian, misalnya laporan harian.")
+    editor_libur()
+    cadangan()
     st.caption("Menghapus pekerja atau kategori menyembunyikannya dari rekap. "
                "Riwayat isiannya tetap tersimpan di file data.")
