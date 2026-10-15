@@ -6,6 +6,7 @@ repositori GitHub (disarankan repositori privat terpisah). Kalau pengaturan
 GitHub tidak ada, aplikasi memakai file lokal untuk uji coba.
 """
 import base64
+import html
 import json
 import os
 import uuid
@@ -15,6 +16,25 @@ import requests
 import streamlit as st
 
 st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="✅", layout="centered")
+
+st.markdown("""
+<style>
+.block-container{padding-top:2.2rem;padding-bottom:4rem;max-width:880px}
+h1{font-size:1.75rem !important;font-weight:700 !important;letter-spacing:-.01em;padding-bottom:.2rem}
+h3{font-size:1.15rem !important}
+.stTabs [data-baseweb="tab-list"]{gap:.4rem}
+.stTabs [data-baseweb="tab"]{font-weight:600;padding:.6rem .9rem}
+[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.28);border-radius:10px;padding:.8rem 1rem;
+  background:rgba(128,128,128,.07)}
+[data-testid="stForm"]{border-radius:10px;border-color:rgba(128,128,128,.28)}
+[data-testid="stVerticalBlockBorderWrapper"]{border-radius:10px}
+.nama{font-weight:650;font-size:1.02rem;margin-bottom:.35rem}
+.jml{font-weight:400;opacity:.65;font-size:.88rem}
+.chip{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;
+  background:rgba(217,72,43,.14);color:#d9482b;font-size:.86rem;font-weight:500;white-space:nowrap}
+.ket{opacity:.7;font-size:.9rem}
+</style>
+""", unsafe_allow_html=True)
 
 HARI = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
@@ -233,10 +253,10 @@ with tab_tgl:
         kats, pks = D["kategori"], D["pekerja"]
         belum = sum(not terisi(tgl, k["id"], p["id"]) for k in kats for p in pks)
         total = len(kats) * len(pks)
-        if belum:
-            st.metric(fmt(tgl_d), f"{belum} dari {total} belum terisi")
-        else:
-            st.success(f"Semua {total} isian sudah terisi pada {fmt(tgl_d)}.")
+        sudah = total - belum
+        st.progress(sudah / total if total else 0.0,
+                    text=f"{fmt(tgl_d)} · {sudah} dari {total} sudah terisi"
+                         + (" ✓" if not belum else ""))
 
         with st.form(f"form_{tgl}"):
             lebar = [3] + [2] * len(kats)
@@ -316,16 +336,21 @@ with tab_lap:
             else:
                 jumlah = sum(len(v) for v in per.values())
                 st.metric("Pekerja yang belum mengisi", len(urut),
-                          f"{jumlah} isian di {len(tanggal_hitung)} tanggal",
-                          delta_color="off")
+                          help=f"{jumlah} isian di {len(tanggal_hitung)} tanggal")
+                st.caption(f"{jumlah} isian belum terisi di {len(tanggal_hitung)} tanggal.")
 
                 def label(x):
                     return fmt(x[0]) + (f" ({x[1]})" if banyak else "")
 
                 for p in urut:
                     with st.container(border=True):
-                        st.markdown(f"**{p['nama']}** · {len(per[p['id']])} tanggal")
-                        st.write(" • ".join(label(x) for x in per[p["id"]]))
+                        chips = "".join(
+                            f'<span class="chip">{html.escape(label(x))}</span>'
+                            for x in per[p["id"]])
+                        st.markdown(
+                            f'<div class="nama">{html.escape(p["nama"])} '
+                            f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>{chips}<div style="height:.2rem"></div>',
+                            unsafe_allow_html=True)
                 teks = "\n".join(
                     f"{p['nama']} belum mengisi: " + "; ".join(label(x) for x in per[p["id"]])
                     for p in urut)
@@ -419,6 +444,38 @@ with tab_kelola:
                         D["libur"].pop(t, None)
                     if hapus_t and commit("Dihapus."):
                         st.rerun()
+
+    with st.container(border=True):
+        st.subheader("Cadangan dan pindah data")
+        st.caption("Unduh seluruh data sebagai file, atau muat file data dari tempat lain. "
+                   "Memuat file akan **mengganti semua data** yang ada sekarang.")
+        st.download_button("Unduh data.json",
+                           json.dumps(D, ensure_ascii=False, indent=1, sort_keys=True),
+                           file_name="data.json", mime="application/json")
+        with st.form("impor"):
+            berkas = st.file_uploader("File data.json", type=["json"])
+            yakin = st.checkbox("Ya, ganti semua data dengan isi file ini")
+            if st.form_submit_button("Muat file"):
+                if berkas is None:
+                    st.error("Pilih filenya dulu.")
+                elif not yakin:
+                    st.error("Centang dulu \"Ya, ganti semua data\".")
+                else:
+                    try:
+                        baru = json.load(berkas)
+                        assert isinstance(baru, dict)
+                        assert isinstance(baru.get("pekerja"), list)
+                        assert isinstance(baru.get("kategori"), list)
+                        assert isinstance(baru.get("libur", {}), dict)
+                        assert isinstance(baru.get("isian", {}), dict)
+                    except Exception:
+                        st.error("File tidak dikenali sebagai data rekap.")
+                    else:
+                        for kunci, awal in data_kosong().items():
+                            baru.setdefault(kunci, awal)
+                        st.session_state.data = baru
+                        if commit("Data dimuat."):
+                            st.rerun()
 
     st.caption("Menghapus pekerja atau kategori menyembunyikannya dari rekap. "
                "Riwayat isiannya tetap tersimpan di file data.")
