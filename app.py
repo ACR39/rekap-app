@@ -33,6 +33,7 @@ h3{font-size:1.15rem !important}
 .chip{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;
   background:rgba(217,72,43,.14);color:#d9482b;font-size:.86rem;font-weight:500;white-space:nowrap}
 .ket{opacity:.7;font-size:.9rem}
+.bidang{font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;opacity:.8;margin:.9rem 0 .4rem}
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,7 +50,8 @@ def fmt(d: date) -> str:
 
 def data_kosong() -> dict:
     return {
-        "pekerja": [],
+        "bidang": [],   # [{"id","nama"}]
+        "pekerja": [],  # [{"id","nama","bidang"(opsional, id bidang)}]
         "kategori": [{"id": "k1", "nama": "Laporan harian"}],
         "libur": {},   # {"2026-10-23": "Keterangan"}
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
@@ -197,6 +199,47 @@ def terisi(tgl: str, kid: str, pid: str) -> bool:
     return pid in D["isian"].get(tgl, {}).get(kid, [])
 
 
+TANPA = "Tanpa bidang"
+
+
+def nama_bidang(p: dict) -> str:
+    peta = {b["id"]: b["nama"] for b in D["bidang"]}
+    return peta.get(p.get("bidang"), TANPA)
+
+
+def kelompok(pks):
+    """Bagi pekerja per bidang. Tanpa bidang yang dibuat: satu kelompok tanpa judul."""
+    if not D["bidang"]:
+        return [(None, list(pks))]
+    hasil = []
+    for b in D["bidang"]:
+        anggota = [p for p in pks if p.get("bidang") == b["id"]]
+        if anggota:
+            hasil.append((b["nama"], anggota))
+    ids = {b["id"] for b in D["bidang"]}
+    lain = [p for p in pks if p.get("bidang") not in ids]
+    if lain:
+        hasil.append((TANPA, lain))
+    return hasil
+
+
+def judul_bidang(nama, jumlah):
+    st.markdown(f'<div class="bidang">{html.escape(nama)} · {jumlah} pekerja</div>',
+                unsafe_allow_html=True)
+
+
+def pilih_pekerja(kunci: str):
+    """Pilihan bidang untuk menyaring pekerja. Tanpa bidang, semua pekerja."""
+    if not D["bidang"]:
+        return D["pekerja"]
+    ada_lain = any(nama_bidang(p) == TANPA for p in D["pekerja"])
+    opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + ([TANPA] if ada_lain else [])
+    pilih = st.selectbox("Bidang", opsi, key=kunci)
+    if pilih == "Semua bidang":
+        return D["pekerja"]
+    return [p for p in D["pekerja"] if nama_bidang(p) == pilih]
+
+
 if "tgl_in" not in st.session_state:
     st.session_state.tgl_in = jumat_terakhir(date.today())
 
@@ -250,7 +293,8 @@ with tab_tgl:
             st.info("Tanggal ini dikecualikan" + (f": {ket}" if ket else "")
                     + ". Tidak dihitung di tab Belum mengisi.")
 
-        kats, pks = D["kategori"], D["pekerja"]
+        kats = D["kategori"]
+        pks = pilih_pekerja("f_bidang_tgl")
         belum = sum(not terisi(tgl, k["id"], p["id"]) for k in kats for p in pks)
         total = len(kats) * len(pks)
         sudah = total - belum
@@ -265,22 +309,25 @@ with tab_tgl:
             for i, k in enumerate(kats):
                 kepala[i + 1].markdown(f"**{k['nama']}**")
             pilihan = {}
-            for p in pks:
-                baris = st.columns(lebar)
-                baris[0].write(p["nama"])
-                for i, k in enumerate(kats):
-                    pilihan[(k["id"], p["id"])] = baris[i + 1].checkbox(
-                        f"{p['nama']} - {k['nama']}",
-                        value=terisi(tgl, k["id"], p["id"]),
-                        key=f"c_{tgl}_{k['id']}_{p['id']}",
-                        label_visibility="collapsed",
-                    )
+            for judul, anggota in kelompok(pks):
+                if judul:
+                    judul_bidang(judul, len(anggota))
+                for p in anggota:
+                    baris = st.columns(lebar)
+                    baris[0].write(p["nama"])
+                    for i, k in enumerate(kats):
+                        pilihan[(k["id"], p["id"])] = baris[i + 1].checkbox(
+                            f"{p['nama']} - {k['nama']}",
+                            value=terisi(tgl, k["id"], p["id"]),
+                            key=f"c_{tgl}_{k['id']}_{p['id']}",
+                            label_visibility="collapsed",
+                        )
             if st.form_submit_button("Simpan", type="primary"):
                 baru = {}
                 for (kid, pid), ya in pilihan.items():
                     if ya:
                         baru.setdefault(kid, []).append(pid)
-                # pertahankan isian milik kategori atau pekerja yang sudah dihapus
+                # pertahankan isian pekerja yang tidak tampil (dihapus atau di luar bidang terpilih)
                 lama = D["isian"].get(tgl, {})
                 aktif_k = {k["id"] for k in kats}
                 aktif_p = {p["id"] for p in pks}
@@ -306,6 +353,7 @@ with tab_lap:
         sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
         nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
         pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
+        pks_lap = pilih_pekerja("f_bidang_lap")
         st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan dilewati.")
 
         if dari > sampai:
@@ -323,13 +371,13 @@ with tab_lap:
                 t = d.isoformat()
                 if d.weekday() == 4 and t not in D["libur"]:
                     for k in kats:
-                        for p in D["pekerja"]:
+                        for p in pks_lap:
                             if not terisi(t, k["id"], p["id"]):
                                 per.setdefault(p["id"], []).append((d, k["nama"]))
                                 tanggal_hitung.add(t)
                 d += timedelta(days=1)
 
-            urut = sorted((p for p in D["pekerja"] if p["id"] in per),
+            urut = sorted((p for p in pks_lap if p["id"] in per),
                           key=lambda p: -len(per[p["id"]]))
             if not urut:
                 st.success("Tidak ada yang belum mengisi pada rentang ini.")
@@ -342,18 +390,24 @@ with tab_lap:
                 def label(x):
                     return fmt(x[0]) + (f" ({x[1]})" if banyak else "")
 
-                for p in urut:
-                    with st.container(border=True):
-                        chips = "".join(
-                            f'<span class="chip">{html.escape(label(x))}</span>'
-                            for x in per[p["id"]])
-                        st.markdown(
-                            f'<div class="nama">{html.escape(p["nama"])} '
-                            f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>{chips}<div style="height:.2rem"></div>',
-                            unsafe_allow_html=True)
-                teks = "\n".join(
-                    f"{p['nama']} belum mengisi: " + "; ".join(label(x) for x in per[p["id"]])
-                    for p in urut)
+                baris_teks = []
+                for judul, anggota in kelompok(urut):
+                    if judul:
+                        judul_bidang(judul, len(anggota))
+                        baris_teks.append(f"[{judul}]")
+                    for p in anggota:
+                        with st.container(border=True):
+                            chips = "".join(
+                                f'<span class="chip">{html.escape(label(x))}</span>'
+                                for x in per[p["id"]])
+                            st.markdown(
+                                f'<div class="nama">{html.escape(p["nama"])} '
+                                f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>'
+                                f'{chips}<div style="height:.2rem"></div>',
+                                unsafe_allow_html=True)
+                        baris_teks.append(f"{p['nama']} belum mengisi: "
+                                          + "; ".join(label(x) for x in per[p["id"]]))
+                teks = "\n".join(baris_teks)
                 st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
                 st.code(teks, language=None)
 
@@ -363,14 +417,20 @@ def kelola_daftar(judul: str, kunci: str, hint: str):
         st.subheader(judul)
         st.caption(hint)
         daftar = D[kunci]
+        pakai_bidang = kunci == "pekerja" and bool(D["bidang"])
         if daftar:
             for x in daftar:
-                st.write("• " + x["nama"])
+                st.write("• " + x["nama"] + (f" · {nama_bidang(x)}" if pakai_bidang else ""))
         else:
             st.write("Belum ada.")
 
+        peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
         with st.form(f"tambah_{kunci}", clear_on_submit=True):
             nama = st.text_input("Nama baru")
+            bid = ""
+            if pakai_bidang:
+                bid = st.selectbox("Bidang", [""] + list(peta_b),
+                                   format_func=lambda i: TANPA if not i else peta_b[i])
             if st.form_submit_button("Tambah"):
                 nama = nama.strip()
                 if not nama:
@@ -378,8 +438,28 @@ def kelola_daftar(judul: str, kunci: str, hint: str):
                 elif any(x["nama"].lower() == nama.lower() for x in daftar):
                     st.error("Nama itu sudah ada.")
                 else:
-                    daftar.append({"id": uuid.uuid4().hex[:8], "nama": nama})
+                    item = {"id": uuid.uuid4().hex[:8], "nama": nama}
+                    if bid:
+                        item["bidang"] = bid
+                    daftar.append(item)
                     if commit("Ditambahkan."):
+                        st.rerun()
+
+        if pakai_bidang and daftar:
+            nama_p = {x["id"]: x["nama"] for x in daftar}
+            with st.form("atur_bidang"):
+                pid_b = st.selectbox("Pindahkan pekerja ke bidang", list(nama_p),
+                                     format_func=lambda i: nama_p[i])
+                bid_b = st.selectbox("Bidang tujuan", [""] + list(peta_b),
+                                     format_func=lambda i: TANPA if not i else peta_b[i])
+                if st.form_submit_button("Simpan bidang"):
+                    for x in daftar:
+                        if x["id"] == pid_b:
+                            if bid_b:
+                                x["bidang"] = bid_b
+                            else:
+                                x.pop("bidang", None)
+                    if commit("Bidang disimpan."):
                         st.rerun()
 
         if daftar:
@@ -414,6 +494,8 @@ def kelola_daftar(judul: str, kunci: str, hint: str):
 
 
 with tab_kelola:
+    kelola_daftar("Bidang", "bidang", "Pengelompokan pekerja, misalnya bidang atau seksi. "
+                  "Boleh dikosongkan kalau tidak diperlukan.")
     kelola_daftar("Pekerja", "pekerja", "Orang yang wajib mengisi.")
     kelola_daftar("Kategori", "kategori", "Jenis isian, misalnya laporan harian.")
 
@@ -466,6 +548,7 @@ with tab_kelola:
                         assert isinstance(baru, dict)
                         assert isinstance(baru.get("pekerja"), list)
                         assert isinstance(baru.get("kategori"), list)
+                        assert isinstance(baru.get("bidang", []), list)
                         assert isinstance(baru.get("libur", {}), dict)
                         assert isinstance(baru.get("isian", {}), dict)
                     except Exception:
