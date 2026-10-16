@@ -8,6 +8,7 @@ GitHub tidak ada, aplikasi memakai file lokal untuk uji coba.
 import base64
 import copy
 import html
+import io
 import json
 import os
 import uuid
@@ -274,6 +275,87 @@ def pilih_pekerja(kunci: str):
     return [p for p in semua if nama_bidang(p) == pilih]
 
 
+def buat_excel(pks, kats, hari, dari, sampai) -> bytes:
+    """Buat file Excel: lembar 'Belum mengisi' (ringkasan per pegawai) dan
+    lembar 'Matriks' (pegawai x tanggal Jumat, Sudah/Belum)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    tebal = Font(bold=True)
+    kepala_isi = PatternFill("solid", fgColor="DDDDDD")
+    merah = PatternFill("solid", fgColor="F8D7D0")
+    hijau = PatternFill("solid", fgColor="CDEBD9")
+    banyak_kat = len(kats) > 1
+
+    def tulis_kepala(ws, judul):
+        ws.append(judul)
+        for sel in ws[1]:
+            sel.font = tebal
+            sel.fill = kepala_isi
+            sel.alignment = Alignment(vertical="center", wrap_text=True)
+        ws.freeze_panes = "A2"
+
+    wb = Workbook()
+
+    # Lembar 1: ringkasan belum mengisi
+    ws = wb.active
+    ws.title = "Belum mengisi"
+    tulis_kepala(ws, ["No", "Nama", "NIP", "Bidang", "Jabatan", "Jumlah belum", "Tanggal belum mengisi"])
+    nomor = 0
+    daftar = []
+    for p in pks:
+        miss = [(d, k["nama"]) for d in hari for k in kats if not terisi(d.isoformat(), k["id"], p["id"])]
+        if miss:
+            daftar.append((p, miss))
+    daftar.sort(key=lambda x: -len(x[1]))
+    for p, miss in daftar:
+        nomor += 1
+        ws.append([nomor, nama_lengkap(p), p.get("nip", ""), nama_bidang(p) if D["bidang"] else "",
+                   p.get("jabatan", ""), len(miss),
+                   "; ".join(fmt(d) + (f" ({kn})" if banyak_kat else "") for d, kn in miss)])
+    for sel in ws["C"][1:]:          # NIP sebagai teks supaya tidak jadi angka ilmiah
+        sel.number_format = "@"
+    for i, lebar in enumerate([5, 34, 22, 20, 26, 13, 70], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = lebar
+    for sel in ws["G"][1:]:
+        sel.alignment = Alignment(wrap_text=True, vertical="top")
+
+    # Lembar 2: matriks pegawai x tanggal
+    wm = wb.create_sheet("Matriks")
+    kolom = [(d, k) for d in hari for k in kats]
+    tulis_kepala(wm, ["Nama", "NIP", "Bidang"]
+                 + [d.strftime("%d/%m/%Y") + (f"\n{k['nama']}" if banyak_kat else "") for d, k in kolom]
+                 + ["Jumlah belum"])
+    for p in pks:
+        baris = [nama_lengkap(p), p.get("nip", ""), nama_bidang(p) if D["bidang"] else ""]
+        belum_n = 0
+        for d, k in kolom:
+            ya = terisi(d.isoformat(), k["id"], p["id"])
+            belum_n += not ya
+            baris.append("Sudah" if ya else "Belum")
+        baris.append(belum_n)
+        wm.append(baris)
+        for j in range(4, 4 + len(kolom)):
+            sel = wm.cell(row=wm.max_row, column=j)
+            sel.fill = hijau if sel.value == "Sudah" else merah
+            sel.alignment = Alignment(horizontal="center")
+        wm.cell(row=wm.max_row, column=2).number_format = "@"
+    wm.column_dimensions["A"].width = 34
+    wm.column_dimensions["B"].width = 22
+    wm.column_dimensions["C"].width = 20
+    for j in range(4, 5 + len(kolom)):
+        wm.column_dimensions[get_column_letter(j)].width = 14
+    wm.freeze_panes = "D2"
+
+    ws.append([])
+    ws.append(["", f"Rentang: {fmt(dari)} s.d. {fmt(sampai)}. Hanya hari Jumat, tanggal dikecualikan dilewati."])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 if "tgl_in" not in st.session_state:
     st.session_state.tgl_in = jumat_terakhir(date.today())
 
@@ -441,10 +523,12 @@ with tab_lap:
             banyak = len(kats) > 1
             per = {}      # id pekerja -> daftar (tanggal, nama kategori)
             tanggal_hitung = set()
+            hari_hitung = []   # semua Jumat yang dihitung (untuk Excel)
             d = dari
             while d <= sampai:
                 t = d.isoformat()
                 if d.weekday() == 4 and t not in D["libur"]:
+                    hari_hitung.append(d)
                     for k in kats:
                         for p in pks_lap:
                             if not terisi(t, k["id"], p["id"]):
@@ -485,6 +569,18 @@ with tab_lap:
                 teks = "\n".join(baris_teks)
                 st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
                 st.code(teks, language=None)
+
+            if hari_hitung and pks_lap:
+                try:
+                    berkas_xlsx = buat_excel(pks_lap, kats, hari_hitung, dari, sampai)
+                except Exception as e:
+                    st.error(f"Excel tidak bisa dibuat: {e}")
+                else:
+                    st.download_button(
+                        "Unduh Excel", berkas_xlsx,
+                        file_name=f"rekap-isian_{dari.isoformat()}_{sampai.isoformat()}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help="Berisi lembar Belum mengisi dan lembar Matriks (pegawai x tanggal)")
 
 # ----------------------------------------------------------------------- kelola
 def versi() -> int:
