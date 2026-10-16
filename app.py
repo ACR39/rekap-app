@@ -33,6 +33,22 @@ h3{font-size:1.15rem !important}
 .chip{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;
   background:rgba(217,72,43,.14);color:#d9482b;font-size:.86rem;font-weight:500;white-space:nowrap}
 .ket{opacity:.7;font-size:.9rem}
+.garis{border-top:1px solid rgba(128,128,128,.3);margin:.3rem 0}
+.peg{font-weight:650}
+.nip{font-size:.85rem;opacity:.7;font-variant-numeric:tabular-nums}
+[class*="st-key-cell_"],[class*="st-key-cell_"] [data-testid="stButton"]{width:100%}
+[class*="st-key-cell_"] button{width:100%;border:0 !important;font-weight:600;min-height:2.6rem}
+[class*="st-key-cell_belum_"] button{background:rgba(217,72,43,.14) !important;color:#d9482b !important}
+[class*="st-key-cell_sudah_"] button{background:rgba(31,138,85,.18) !important;color:#1f8a55 !important}
+[class*="st-key-cell_"] button:hover{filter:brightness(.95)}
+@media (max-width: 640px){
+  [data-testid="stHorizontalBlock"]:has([class*="st-key-cell_"]),
+  [data-testid="stHorizontalBlock"]:has([class*="st-key-all_"]){flex-wrap:nowrap !important;gap:.5rem !important}
+  [data-testid="stHorizontalBlock"]:has([class*="st-key-cell_"]) > [data-testid="stColumn"],
+  [data-testid="stHorizontalBlock"]:has([class*="st-key-all_"]) > [data-testid="stColumn"]{min-width:0 !important}
+  [class*="st-key-cell_"] button{font-size:.85rem;padding:.25rem .4rem}
+  [class*="st-key-all_"] button{font-size:.75rem;padding:.2rem .4rem}
+}
 .bidang{font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;opacity:.8;margin:.9rem 0 .4rem}
 </style>
 """, unsafe_allow_html=True)
@@ -41,6 +57,7 @@ HARI = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
          "Agustus", "September", "Oktober", "November", "Desember"]
 MAKS_HARI = 731
+AWAL_WFA = date(2026, 2, 13)   # Jumat pertama WFA, tanggal awal bawaan di laporan
 # Pilihan di formulir pegawai. Ubah daftar ini kalau sebutan di instansi Anda berbeda.
 GOLONGAN = ["I/a", "I/b", "I/c", "I/d", "II/a", "II/b", "II/c", "II/d",
             "III/a", "III/b", "III/c", "III/d", "IV/a", "IV/b", "IV/c", "IV/d", "IV/e"]
@@ -133,7 +150,7 @@ def simpan(data: dict):
 
 def muat_ke_sesi():
     st.session_state.data, st.session_state.sha = muat()
-    for k in [k for k in st.session_state if str(k).startswith("c_")]:
+    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_"))]:
         del st.session_state[k]
 
 
@@ -272,6 +289,27 @@ def cb_pilih():
     st.session_state.tgl_in = jumat_terakhir(st.session_state.tgl_in)
 
 
+def _atur_isian(pend: dict, tgl: str, kid: str, pid: str, nilai: bool):
+    """Catat perubahan sementara. Kalau sama dengan data tersimpan, hapus catatannya."""
+    kunci = f"{kid}|{pid}"
+    if nilai == terisi(tgl, kid, pid):
+        pend.pop(kunci, None)
+    else:
+        pend[kunci] = nilai
+
+
+def cb_balik(tgl: str, kid: str, pid: str):
+    pend = st.session_state.setdefault(f"pend_{tgl}", {})
+    _atur_isian(pend, tgl, kid, pid, not pend.get(f"{kid}|{pid}", terisi(tgl, kid, pid)))
+
+
+def cb_semua(tgl: str, kid: str, pids: list):
+    pend = st.session_state.setdefault(f"pend_{tgl}", {})
+    semua = all(pend.get(f"{kid}|{p}", terisi(tgl, kid, p)) for p in pids)
+    for p in pids:
+        _atur_isian(pend, tgl, kid, p, not semua)
+
+
 # ------------------------------------------------------------------- tampilan
 kiri, kanan = st.columns([4, 1])
 kiri.title("Rekap Isian Pekerja")
@@ -311,52 +349,78 @@ with tab_tgl:
 
         kats = D["kategori"]
         pks = pilih_pekerja("f_bidang_tgl")
-        belum = sum(not terisi(tgl, k["id"], p["id"]) for k in kats for p in pks)
+        pend = st.session_state.setdefault(f"pend_{tgl}", {})
+
+        def status(kid, pid):
+            return pend.get(f"{kid}|{pid}", terisi(tgl, kid, pid))
+
+        belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
         total = len(kats) * len(pks)
         sudah = total - belum
         st.progress(sudah / total if total else 0.0,
                     text=f"{fmt(tgl_d)} · {sudah} dari {total} sudah terisi"
                          + (" ✓" if not belum else ""))
+        if pend:
+            st.warning(f"{len(pend)} perubahan belum disimpan. Tekan Simpan perubahan di bawah.")
+        lain = [str(k)[5:] for k, v in st.session_state.items()
+                if str(k).startswith("pend_") and v and k != f"pend_{tgl}"]
+        if lain:
+            st.caption("Ada perubahan belum disimpan di tanggal: "
+                       + ", ".join(fmt(date.fromisoformat(t)) for t in sorted(lain)) + ".")
 
-        with st.form(f"form_{tgl}"):
-            lebar = [3] + [2] * len(kats)
-            kepala = st.columns(lebar)
-            kepala[0].markdown("**Pekerja**")
-            for i, k in enumerate(kats):
-                kepala[i + 1].markdown(f"**{k['nama']}**")
-            pilihan = {}
-            for judul, anggota in kelompok(pks):
-                if judul:
-                    judul_bidang(judul, len(anggota))
-                for p in anggota:
-                    baris = st.columns(lebar)
-                    baris[0].write(nama_lengkap(p))
-                    for i, k in enumerate(kats):
-                        pilihan[(k["id"], p["id"])] = baris[i + 1].checkbox(
-                            f"{nama_lengkap(p)} - {k['nama']}",
-                            value=terisi(tgl, k["id"], p["id"]),
-                            key=f"c_{tgl}_{k['id']}_{p['id']}",
-                            label_visibility="collapsed",
-                        )
-            if st.form_submit_button("Simpan", type="primary"):
-                baru = {}
-                for (kid, pid), ya in pilihan.items():
-                    if ya:
-                        baru.setdefault(kid, []).append(pid)
-                # pertahankan isian pekerja yang tidak tampil (dihapus atau di luar bidang terpilih)
-                lama = D["isian"].get(tgl, {})
-                aktif_k = {k["id"] for k in kats}
-                aktif_p = {p["id"] for p in pks}
-                for kid, daftar in lama.items():
-                    sisa = [x for x in daftar if kid not in aktif_k or x not in aktif_p]
-                    if sisa:
-                        baru.setdefault(kid, []).extend(sisa)
-                if baru:
-                    D["isian"][tgl] = baru
-                else:
-                    D["isian"].pop(tgl, None)
-                if commit("Tersimpan."):
-                    st.rerun()
+        ada_jabatan = any(p.get("jabatan") for p in pks)
+        lebar = [4] + ([3] if ada_jabatan else []) + [2.2] * len(kats)
+        geser = 2 if ada_jabatan else 1
+        kepala = st.columns(lebar)
+        kepala[0].markdown("**Pegawai**")
+        if ada_jabatan:
+            kepala[1].markdown("**Jabatan**")
+        for i, k in enumerate(kats):
+            kepala[geser + i].markdown(f"**{k['nama']}**")
+            kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
+                                     args=(tgl, k["id"], [p["id"] for p in pks]))
+        for judul, anggota in kelompok(pks):
+            if judul:
+                judul_bidang(judul, len(anggota))
+            for p in anggota:
+                st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+                baris = st.columns(lebar, vertical_alignment="center")
+                nip = p.get("nip", "")
+                baris[0].markdown(
+                    f'<div class="peg">{html.escape(nama_lengkap(p))}</div>'
+                    + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
+                    unsafe_allow_html=True)
+                if ada_jabatan:
+                    baris[1].write(p.get("jabatan", ""))
+                for i, k in enumerate(kats):
+                    ya = status(k["id"], p["id"])
+                    baris[geser + i].button(
+                        "✓ Sudah" if ya else "Belum",
+                        key=f"cell_{'sudah' if ya else 'belum'}_{k['id']}_{p['id']}",
+                        on_click=cb_balik, args=(tgl, k["id"], p["id"]))
+        st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+
+        a1, a2, _ = st.columns([2, 2, 3])
+        if a1.button("Simpan perubahan", type="primary", disabled=not pend, key="simpan_isian"):
+            isian = {k: list(v) for k, v in D["isian"].get(tgl, {}).items()}
+            for kunci, ya in pend.items():
+                kid, pid = kunci.split("|")
+                daftar = isian.setdefault(kid, [])
+                if ya and pid not in daftar:
+                    daftar.append(pid)
+                if not ya and pid in daftar:
+                    daftar.remove(pid)
+            isian = {k: v for k, v in isian.items() if v}
+            if isian:
+                D["isian"][tgl] = isian
+            else:
+                D["isian"].pop(tgl, None)
+            if commit("Tersimpan."):
+                st.session_state[f"pend_{tgl}"] = {}
+                st.rerun()
+        if a2.button("Batalkan perubahan", disabled=not pend, key="batal_isian"):
+            st.session_state[f"pend_{tgl}"] = {}
+            st.rerun()
 
 # -------------------------------------------------------------------- laporan
 with tab_lap:
@@ -364,8 +428,7 @@ with tab_lap:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
     else:
         a, b, c = st.columns(3)
-        awal_bulan = date.today().replace(day=1)
-        dari = a.date_input("Dari", value=awal_bulan, key="dari", format="DD/MM/YYYY")
+        dari = a.date_input("Dari", value=AWAL_WFA, key="dari", format="DD/MM/YYYY")
         sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
         nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
         pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
