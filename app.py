@@ -6,6 +6,7 @@ repositori GitHub (disarankan repositori privat terpisah). Kalau pengaturan
 GitHub tidak ada, aplikasi memakai file lokal untuk uji coba.
 """
 import base64
+import copy
 import html
 import json
 import os
@@ -289,25 +290,49 @@ def cb_pilih():
     st.session_state.tgl_in = jumat_terakhir(st.session_state.tgl_in)
 
 
-def _atur_isian(pend: dict, tgl: str, kid: str, pid: str, nilai: bool):
-    """Catat perubahan sementara. Kalau sama dengan data tersimpan, hapus catatannya."""
-    kunci = f"{kid}|{pid}"
-    if nilai == terisi(tgl, kid, pid):
-        pend.pop(kunci, None)
+def _sudah(data: dict, tgl: str, kid: str, pid: str) -> bool:
+    return pid in data["isian"].get(tgl, {}).get(kid, [])
+
+
+def _simpan_isian(tgl: str, kid: str, pids: list, nilai: bool):
+    """Ubah isian lalu langsung simpan. Kalau gagal, ubahan dikembalikan."""
+    data = st.session_state.data
+    lama = copy.deepcopy(data["isian"].get(tgl))
+    isian = {k: list(v) for k, v in (lama or {}).items()}
+    daftar = isian.setdefault(kid, [])
+    for pid in pids:
+        if nilai and pid not in daftar:
+            daftar.append(pid)
+        if not nilai and pid in daftar:
+            daftar.remove(pid)
+    isian = {k: v for k, v in isian.items() if v}
+    if isian:
+        data["isian"][tgl] = isian
     else:
-        pend[kunci] = nilai
+        data["isian"].pop(tgl, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ketuk ulang.")
+    except Exception as e:  # jaringan, token salah, dan sebagainya
+        if lama is None:
+            data["isian"].pop(tgl, None)
+        else:
+            data["isian"][tgl] = lama
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
 def cb_balik(tgl: str, kid: str, pid: str):
-    pend = st.session_state.setdefault(f"pend_{tgl}", {})
-    _atur_isian(pend, tgl, kid, pid, not pend.get(f"{kid}|{pid}", terisi(tgl, kid, pid)))
+    _simpan_isian(tgl, kid, [pid], not _sudah(st.session_state.data, tgl, kid, pid))
 
 
 def cb_semua(tgl: str, kid: str, pids: list):
-    pend = st.session_state.setdefault(f"pend_{tgl}", {})
-    semua = all(pend.get(f"{kid}|{p}", terisi(tgl, kid, p)) for p in pids)
-    for p in pids:
-        _atur_isian(pend, tgl, kid, p, not semua)
+    data = st.session_state.data
+    semua = all(_sudah(data, tgl, kid, p) for p in pids)
+    _simpan_isian(tgl, kid, pids, not semua)
 
 
 # ------------------------------------------------------------------- tampilan
@@ -349,10 +374,7 @@ with tab_tgl:
 
         kats = D["kategori"]
         pks = pilih_pekerja("f_bidang_tgl")
-        pend = st.session_state.setdefault(f"pend_{tgl}", {})
-
-        def status(kid, pid):
-            return pend.get(f"{kid}|{pid}", terisi(tgl, kid, pid))
+        status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
         belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
         total = len(kats) * len(pks)
@@ -360,13 +382,8 @@ with tab_tgl:
         st.progress(sudah / total if total else 0.0,
                     text=f"{fmt(tgl_d)} · {sudah} dari {total} sudah terisi"
                          + (" ✓" if not belum else ""))
-        if pend:
-            st.warning(f"{len(pend)} perubahan belum disimpan. Tekan Simpan perubahan di bawah.")
-        lain = [str(k)[5:] for k, v in st.session_state.items()
-                if str(k).startswith("pend_") and v and k != f"pend_{tgl}"]
-        if lain:
-            st.caption("Ada perubahan belum disimpan di tanggal: "
-                       + ", ".join(fmt(date.fromisoformat(t)) for t in sorted(lain)) + ".")
+        if st.session_state.get("pesan_isian"):
+            st.error(st.session_state.pesan_isian)
 
         ada_jabatan = any(p.get("jabatan") for p in pks)
         lebar = [4] + ([3] if ada_jabatan else []) + [2.2] * len(kats)
@@ -399,28 +416,7 @@ with tab_tgl:
                         key=f"cell_{'sudah' if ya else 'belum'}_{k['id']}_{p['id']}",
                         on_click=cb_balik, args=(tgl, k["id"], p["id"]))
         st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-
-        a1, a2, _ = st.columns([2, 2, 3])
-        if a1.button("Simpan perubahan", type="primary", disabled=not pend, key="simpan_isian"):
-            isian = {k: list(v) for k, v in D["isian"].get(tgl, {}).items()}
-            for kunci, ya in pend.items():
-                kid, pid = kunci.split("|")
-                daftar = isian.setdefault(kid, [])
-                if ya and pid not in daftar:
-                    daftar.append(pid)
-                if not ya and pid in daftar:
-                    daftar.remove(pid)
-            isian = {k: v for k, v in isian.items() if v}
-            if isian:
-                D["isian"][tgl] = isian
-            else:
-                D["isian"].pop(tgl, None)
-            if commit("Tersimpan."):
-                st.session_state[f"pend_{tgl}"] = {}
-                st.rerun()
-        if a2.button("Batalkan perubahan", disabled=not pend, key="batal_isian"):
-            st.session_state[f"pend_{tgl}"] = {}
-            st.rerun()
+        st.caption("Setiap ketukan langsung tersimpan.")
 
 # -------------------------------------------------------------------- laporan
 with tab_lap:
