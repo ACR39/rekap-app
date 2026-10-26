@@ -261,17 +261,27 @@ def judul_bidang(nama, jumlah):
                 unsafe_allow_html=True)
 
 
-def pilih_pekerja(kunci: str):
-    """Pilihan bidang untuk menyaring pekerja. Tanpa bidang, semua pekerja."""
+def pilih_pekerja(kunci: str, per_nama: bool = False):
+    """Pilihan bidang (dan, kalau per_nama, nama) untuk menyaring pekerja.
+    Nama tidak dipilih = semua orang di bidang itu."""
     semua = [p for p in D["pekerja"] if aktif(p)]
-    if not D["bidang"]:
-        return semua
-    ada_lain = any(nama_bidang(p) == TANPA for p in semua)
-    opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + ([TANPA] if ada_lain else [])
-    pilih = st.selectbox("Bidang", opsi, key=kunci)
-    if pilih == "Semua bidang":
-        return semua
-    return [p for p in semua if nama_bidang(p) == pilih]
+    hasil = semua
+    if D["bidang"]:
+        ada_lain = any(nama_bidang(p) == TANPA for p in semua)
+        opsi = (["Semua bidang"] + [b["nama"] for b in D["bidang"]]
+                + ([TANPA] if ada_lain else []))
+        pilih = st.selectbox("Bidang", opsi, key=kunci)
+        if pilih != "Semua bidang":
+            hasil = [p for p in semua if nama_bidang(p) == pilih]
+    if per_nama:
+        dipilih = st.multiselect(
+            "Nama (kosongkan untuk menampilkan semua)",
+            [p["id"] for p in hasil], key=f"{kunci}_nama",
+            format_func=lambda i: nama_lengkap(next(p for p in hasil if p["id"] == i)),
+            placeholder="Semua orang di bidang ini")
+        if dipilih:
+            hasil = [p for p in hasil if p["id"] in dipilih]
+    return hasil
 
 
 if "tgl_in" not in st.session_state:
@@ -373,7 +383,7 @@ with tab_tgl:
                     + ". Tidak dihitung di tab Belum mengisi.")
 
         kats = D["kategori"]
-        pks = pilih_pekerja("f_bidang_tgl")
+        pks = pilih_pekerja("f_bidang_tgl", per_nama=True)
         status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
         belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
