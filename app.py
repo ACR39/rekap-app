@@ -33,6 +33,10 @@ h3{font-size:1.15rem !important}
 .jml{font-weight:400;opacity:.65;font-size:.88rem}
 .chip{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;
   background:rgba(217,72,43,.14);color:#d9482b;font-size:.86rem;font-weight:500;white-space:nowrap}
+[class*="st-key-chip_"],[class*="st-key-chip_"] [data-testid="stButton"]{width:auto}
+[class*="st-key-chip_"] button{min-height:0;padding:.12rem .7rem;border:0 !important;border-radius:999px;
+  background:rgba(217,72,43,.14) !important;color:#d9482b !important;font-size:.86rem;font-weight:500}
+[class*="st-key-chip_"] button:hover{filter:brightness(.93)}
 .ket{opacity:.7;font-size:.9rem}
 .garis{border-top:1px solid rgba(128,128,128,.3);margin:.3rem 0}
 .peg{font-weight:650}
@@ -345,6 +349,18 @@ def cb_semua(tgl: str, kid: str, pids: list):
     _simpan_isian(tgl, kid, pids, not semua)
 
 
+def cb_lompat(tgl: str, pid: str):
+    """Dari chip di Belum mengisi: buka Per tanggal untuk tanggal dan nama itu."""
+    p = next((x for x in st.session_state.data["pekerja"] if x["id"] == pid), None)
+    if p is None:
+        return
+    st.session_state.tgl_in = date.fromisoformat(tgl)
+    if st.session_state.data["bidang"]:
+        st.session_state.f_bidang_tgl = nama_bidang(p)
+    st.session_state.f_bidang_tgl_nama = [pid]
+    st.session_state.halaman = "Per tanggal"
+
+
 # ------------------------------------------------------------------- tampilan
 kiri, kanan = st.columns([4, 1])
 kiri.title("Rekap Isian Pekerja")
@@ -359,10 +375,14 @@ else:
     st.warning("Mode uji coba: data disimpan di file lokal dan bisa hilang saat aplikasi "
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
-tab_tgl, tab_lap, tab_kelola = st.tabs(["Per tanggal", "Belum mengisi", "Kelola"])
+HALAMAN = ["Per tanggal", "Belum mengisi", "Kelola"]
+if "halaman" not in st.session_state:
+    st.session_state.halaman = HALAMAN[0]
+halaman = st.segmented_control("Halaman", HALAMAN, key="halaman",
+                               label_visibility="collapsed") or HALAMAN[0]
 
 # --------------------------------------------------------------- per tanggal
-with tab_tgl:
+if halaman == "Per tanggal":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
     else:
@@ -433,7 +453,7 @@ with tab_tgl:
         st.caption("Setiap ketukan langsung tersimpan.")
 
 # -------------------------------------------------------------------- laporan
-with tab_lap:
+if halaman == "Belum mengisi":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
     else:
@@ -462,7 +482,7 @@ with tab_lap:
                     for k in kats:
                         for p in pks_lap:
                             if not terisi(t, k["id"], p["id"]):
-                                per.setdefault(p["id"], []).append((d, k["nama"]))
+                                per.setdefault(p["id"], []).append((d, k["nama"], k["id"]))
                                 tanggal_hitung.add(t)
                 d += timedelta(days=1)
 
@@ -486,14 +506,15 @@ with tab_lap:
                         baris_teks.append(f"[{judul}]")
                     for p in anggota:
                         with st.container(border=True):
-                            chips = "".join(
-                                f'<span class="chip">{html.escape(label(x))}</span>'
-                                for x in per[p["id"]])
                             st.markdown(
                                 f'<div class="nama">{html.escape(nama_lengkap(p))} '
-                                f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>'
-                                f'{chips}<div style="height:.2rem"></div>',
+                                f'<span class="jml">· {len(per[p["id"]])} tanggal</span></div>',
                                 unsafe_allow_html=True)
+                            with st.container(horizontal=True, gap="small"):
+                                for x in per[p["id"]]:
+                                    st.button(label(x), key=f"chip_{p['id']}_{x[0].isoformat()}_{x[2]}",
+                                              on_click=cb_lompat, args=(x[0].isoformat(), p["id"]),
+                                              help="Buka tanggal ini di Per tanggal")
                         baris_teks.append(f"{nama_lengkap(p)} belum mengisi: "
                                           + "; ".join(label(x) for x in per[p["id"]]))
                 teks = "\n".join(baris_teks)
@@ -726,7 +747,7 @@ def cadangan():
                         selesai_simpan("Data dimuat.")
 
 
-with tab_kelola:
+if halaman == "Kelola":
     halaman_pegawai()
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
