@@ -67,6 +67,9 @@ AWAL_WFA = date(2026, 2, 13)   # Jumat pertama WFA, tanggal awal bawaan di lapor
 # Pilihan di formulir pegawai. Ubah daftar ini kalau sebutan di instansi Anda berbeda.
 GOLONGAN = ["I/a", "I/b", "I/c", "I/d", "II/a", "II/b", "II/c", "II/d",
             "III/a", "III/b", "III/c", "III/d", "IV/a", "IV/b", "IV/c", "IV/d", "IV/e"]
+GOLONGAN_PPPK = ["PPPK " + r for r in (
+    "I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII".split())]
+GOLONGAN += GOLONGAN_PPPK
 ESELON = ["I.a", "I.b", "II.a", "II.b", "III.a", "III.b", "IV.a", "IV.b", "Non eselon"]
 JENIS_JABATAN = ["Struktural", "Fungsional", "Pelaksana"]
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
@@ -569,7 +572,7 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            for p in D["pekerja"]:
+            for p in sorted(D["pekerja"], key=lambda x: x["nama"].lower()):
                 c1, c2 = st.columns([6, 1.5], vertical_alignment="center")
                 c1.markdown(f"**{nama_lengkap(p)}**")
                 info = " · ".join(x for x in (nama_bidang(p) if D["bidang"] else "",
