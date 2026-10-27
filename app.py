@@ -40,7 +40,7 @@ st.markdown("""
 [class*="st-key-nav_"] button > div,[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
 [class*="st-key-nav_"] button p{width:100%;text-align:left !important;justify-content:flex-start !important}
 [class*="st-key-nav_"] button:hover{filter:brightness(1.2)}
-.st-key-kartu_filter,.st-key-kartu_tabel{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
+.st-key-kartu_filter,.st-key-kartu_tabel,.st-key-kartu_pegawai{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
 .statcard{display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e3e7ee;border-radius:16px;
@@ -642,12 +642,16 @@ def halaman_pegawai():
     mode = st.session_state.get("pg_mode")          # None (daftar), "baru", atau id pegawai
     if mode not in (None, "baru") and mode not in by_id:
         mode = None
-    with st.expander(f"Pegawai ({len(D['pekerja'])})", expanded=True):
+    with st.container(key="kartu_pegawai"):
         if not mode:
             st.button("Tambah pegawai", type="primary", key="pg_tambah",
                       on_click=atur, args=("pg_mode", "baru"))
             if not D["pekerja"]:
                 st.write("Belum ada pegawai.")
+            cari = " ".join(st.text_input(
+                "Pencarian", key="pg_cari", icon=":material/search:",
+                placeholder="Cari nama, NIP, jabatan, atau bidang...",
+                label_visibility="collapsed").lower().split())
             hitung = {}
             for x in D["pekerja"]:
                 hitung.setdefault(" ".join(x["nama"].lower().split()), []).append(x)
@@ -674,6 +678,11 @@ def halaman_pegawai():
                 "bidang": lambda x: (nama_bidang(x).lower(), x["nama"].lower()),
             }[kini]
             urut = sorted(D["pekerja"], key=kunci_urut, reverse=not naik)
+            if cari:
+                urut = [x for x in urut if cari in " ".join(
+                    [x["nama"], str(x.get("nip", "")), x.get("jabatan", ""), nama_bidang(x)]).lower()]
+                if not urut:
+                    st.info("Tidak ada pegawai yang cocok dengan pencarian.")
             for no, p in enumerate(urut, 1):
                 st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
                 k = st.columns(lebar, vertical_alignment="center")
