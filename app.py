@@ -16,44 +16,69 @@ from datetime import date, timedelta
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="✅", layout="centered")
+st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="📋", layout="wide")
 
 st.markdown("""
 <style>
-.block-container{padding-top:2.2rem;padding-bottom:4rem;max-width:880px}
-h1{font-size:1.75rem !important;font-weight:700 !important;letter-spacing:-.01em;padding-bottom:.2rem}
-h3{font-size:1.15rem !important}
-.stTabs [data-baseweb="tab-list"]{gap:.4rem}
-.stTabs [data-baseweb="tab"]{font-weight:600;padding:.6rem .9rem}
-[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.28);border-radius:10px;padding:.8rem 1rem;
-  background:rgba(128,128,128,.07)}
-[data-testid="stForm"]{border-radius:10px;border-color:rgba(128,128,128,.28)}
-[data-testid="stVerticalBlockBorderWrapper"]{border-radius:10px}
+.block-container{padding-top:2.2rem;padding-bottom:4rem;max-width:1100px}
+.eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;color:#2b7a57}
+.judul-hal{font-size:1.6rem;font-weight:700;color:#111827;margin:.1rem 0 1rem}
+[data-testid="stSidebar"]{background:#0b1220}
+[data-testid="stSidebar"] *{color:#e5e7eb}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *{color:#94a3b8}
+.brand{padding:.4rem .2rem 1rem;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:.9rem}
+.brand .b1{font-weight:700;font-size:1.05rem;color:#fff}
+.brand .b2{font-size:.78rem;color:#94a3b8;margin-top:.1rem}
+.sp{height:1.2rem}
+[class*="st-key-nav_"] button{justify-content:flex-start;border:0 !important;border-radius:12px;min-height:2.7rem;
+  background:#131c2e !important;color:#e5e7eb !important;font-weight:600}
+[class*="st-key-nav_"] button[kind="primary"]{background:#2b7a57 !important;color:#fff !important}
+[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"]{width:100%;text-align:left}
+[class*="st-key-nav_"] button:hover{filter:brightness(1.2)}
+.st-key-kartu_filter,.st-key-kartu_tabel{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
+  padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
+[data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
+.statcard{display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e3e7ee;border-radius:16px;
+  box-shadow:0 1px 3px rgba(16,24,40,.06);margin:.2rem 0 .6rem;overflow:hidden}
+.sc-kiri{flex:2 1 280px;padding:1rem 1.2rem}
+.sc-judul{font-size:1.35rem;font-weight:800;color:#111827;margin-top:.5rem}
+.sc-ket{font-size:.85rem;color:#6b7280;margin-top:.15rem}
+.tag{display:inline-block;background:#e8f3ec;color:#1f6b49;font-size:.72rem;font-weight:700;border-radius:999px;
+  padding:.15rem .65rem;margin-right:.4rem}
+.tag-m{background:#fff4d6;color:#8a5a00}
+.sc-stat{flex:1 1 90px;border-left:1px solid #eef0f4;text-align:center;padding:1rem .4rem}
+.sc-lab{font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#6b7280}
+.sc-val{font-size:1.7rem;font-weight:800;color:#111827;margin-top:.2rem}
+.sc-val.g{color:#166534}.sc-val.m{color:#b42318}
+[data-testid="stMetric"]{border:1px solid #d9dee7;border-radius:8px;padding:.8rem 1rem;
+  background:#fff}
+[data-testid="stForm"]{border-radius:8px;border-color:#d9dee7;background:#fff}
+[data-testid="stVerticalBlockBorderWrapper"]{border-radius:8px}
 .nama{font-weight:650;font-size:1.02rem;margin-bottom:.35rem}
 .jml{font-weight:400;opacity:.65;font-size:.88rem}
 .chip{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;
-  background:rgba(217,72,43,.14);color:#d9482b;font-size:.86rem;font-weight:500;white-space:nowrap}
+  background:#fde8e6;color:#b42318;font-size:.86rem;font-weight:500;white-space:nowrap}
 [class*="st-key-chip_"],[class*="st-key-chip_"] [data-testid="stButton"]{width:auto}
 [class*="st-key-chip_"] button{min-height:0;padding:.12rem .7rem;border:0 !important;border-radius:999px;
-  background:rgba(217,72,43,.14) !important;color:#d9482b !important;font-size:.86rem;font-weight:500}
+  background:#fde8e6 !important;color:#b42318 !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
 [data-testid="InputInstructions"]{display:none}
-.thead{background:#6a79de;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
+.thead{background:#256b4a;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
 [class*="st-key-thead_"],[class*="st-key-thead_"] [data-testid="stButton"]{width:100%}
-[class*="st-key-thead_"] button{width:100%;background:#6a79de !important;color:#fff !important;border:0 !important;
+[class*="st-key-thead_"] button{width:100%;background:#256b4a !important;color:#fff !important;border:0 !important;
   font-weight:650;border-radius:4px;min-height:2.4rem;padding:.2rem .3rem;white-space:nowrap}
 [class*="st-key-thead_"] button:hover{filter:brightness(.92)}
 [class*="st-key-pgedit_"] button,[class*="st-key-pghapus_"] button{min-height:2rem;padding:.1rem .5rem;border:0 !important;color:#fff !important}
-[class*="st-key-pgedit_"] button{background:#2f9be6 !important}
-[class*="st-key-pghapus_"] button{background:#e8453c !important}
+[class*="st-key-pgedit_"] button{background:#2f5d9e !important}
+[class*="st-key-pghapus_"] button{background:#b42318 !important}
 .ket{opacity:.7;font-size:.9rem}
-.garis{border-top:1px solid rgba(128,128,128,.3);margin:.3rem 0}
+.garis{border-top:1px solid #e3e7ee;margin:.3rem 0}
 .peg{font-weight:650}
-.nip{font-size:.85rem;opacity:.7;font-variant-numeric:tabular-nums}
+.nip{font-size:.85rem;color:#5b6573;font-variant-numeric:tabular-nums}
 [class*="st-key-cell_"],[class*="st-key-cell_"] [data-testid="stButton"]{width:100%}
 [class*="st-key-cell_"] button{width:100%;border:0 !important;font-weight:600;min-height:2.6rem}
-[class*="st-key-cell_belum_"] button{background:rgba(217,72,43,.14) !important;color:#d9482b !important}
-[class*="st-key-cell_sudah_"] button{background:rgba(31,138,85,.18) !important;color:#1f8a55 !important}
+[class*="st-key-cell_belum_"] button{background:#fde8e6 !important;color:#b42318 !important}
+[class*="st-key-cell_sudah_"] button{background:#dcf3e4 !important;color:#166534 !important}
 [class*="st-key-cell_"] button:hover{filter:brightness(.95)}
 @media (max-width: 640px){
   [data-testid="stHorizontalBlock"]:has([class*="st-key-cell_"]),
@@ -63,7 +88,7 @@ h3{font-size:1.15rem !important}
   [class*="st-key-cell_"] button{font-size:.85rem;padding:.25rem .4rem}
   [class*="st-key-all_"] button{font-size:.75rem;padding:.2rem .4rem}
 }
-.bidang{font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;opacity:.8;margin:.9rem 0 .4rem}
+.bidang{font-weight:700;font-size:.78rem;text-transform:uppercase;letter-spacing:.07em;color:#256b4a;background:#e8f3ec;border-left:3px solid #256b4a;padding:.35rem .7rem;border-radius:4px;margin:1rem 0 .4rem}
 </style>
 """, unsafe_allow_html=True)
 
@@ -311,6 +336,10 @@ if "tgl_in" not in st.session_state:
     st.session_state.tgl_in = jumat_terakhir(date.today())
 
 
+def atur(kunci: str, nilai):
+    st.session_state[kunci] = nilai
+
+
 def cb_geser(arah):
     st.session_state.tgl_in = lompat(st.session_state.tgl_in, arah)
 
@@ -381,95 +410,119 @@ def cb_lompat(tgl: str, pid: str):
 
 
 # ------------------------------------------------------------------- tampilan
-kiri, kanan = st.columns([4, 1])
-kiri.title("Rekap Isian Pekerja")
-kanan.write("")
-if kanan.button("Muat ulang", help="Ambil data terbaru dari penyimpanan"):
-    muat_ke_sesi()
-    st.rerun()
-st.caption("Catat siapa yang sudah mengisi pada hari Jumat (WFA), lihat siapa yang belum.")
-if cfg_github():
-    st.caption(f"Data tersimpan di GitHub: {cfg_github()['repo']}")
-else:
+if not cfg_github():
     st.warning("Mode uji coba: data disimpan di file lokal dan bisa hilang saat aplikasi "
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 HALAMAN = ["Per tanggal", "Belum mengisi", "Kelola"]
-if "halaman" not in st.session_state:
+if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = HALAMAN[0]
-halaman = st.segmented_control("Halaman", HALAMAN, key="halaman",
-                               label_visibility="collapsed") or HALAMAN[0]
+halaman = st.session_state.halaman
+IKON = {"Per tanggal": "📅", "Belum mengisi": "⏳", "Kelola": "⚙️"}
+with st.sidebar:
+    st.markdown('<div class="brand"><div class="b1">Rekap Isian Pekerja</div>'
+                '<div class="b2">Pencatatan keterisian laporan WFA</div></div>',
+                unsafe_allow_html=True)
+    for h in HALAMAN:
+        st.button(f"{IKON[h]}  {h}", key=f"nav_{h}", use_container_width=True,
+                  type="primary" if h == halaman else "secondary",
+                  on_click=atur, args=("halaman", h))
+    st.markdown('<div class="sp"></div>', unsafe_allow_html=True)
+    if st.button("🔄  Muat ulang", key="nav_muat", use_container_width=True,
+                 help="Ambil data terbaru dari penyimpanan"):
+        muat_ke_sesi()
+        st.rerun()
+    if cfg_github():
+        st.caption(f"Data: {cfg_github()['repo']}")
+st.markdown(f'<div class="eyebrow">REKAP ISIAN PEKERJA</div><div class="judul-hal">{halaman}</div>',
+            unsafe_allow_html=True)
 
 # --------------------------------------------------------------- per tanggal
 if halaman == "Per tanggal":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
     else:
-        c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
-        c1.button("‹", key="prev", on_click=cb_geser, args=(-1,),
-                  help="Jumat sebelumnya (tanggal dikecualikan dilewati)")
-        c2.date_input("Tanggal (Jumat WFA)", key="tgl_in", on_change=cb_pilih,
-                      format="DD/MM/YYYY")
-        c3.button("›", key="next", on_click=cb_geser, args=(1,),
-                  help="Jumat berikutnya (tanggal dikecualikan dilewati)")
-        c4.button("Jumat terakhir", key="last", on_click=cb_terakhir)
+        with st.container(key="kartu_filter"):
+            c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
+            c1.button("‹", key="prev", on_click=cb_geser, args=(-1,),
+                      help="Jumat sebelumnya (tanggal dikecualikan dilewati)")
+            c2.date_input("Tanggal (Jumat WFA)", key="tgl_in", on_change=cb_pilih,
+                          format="DD/MM/YYYY")
+            c3.button("›", key="next", on_click=cb_geser, args=(1,),
+                      help="Jumat berikutnya (tanggal dikecualikan dilewati)")
+            c4.button("Jumat terakhir", key="last", on_click=cb_terakhir)
 
-        tgl_d = st.session_state.tgl_in
-        tgl = tgl_d.isoformat()
-        if tgl in D["libur"]:
-            ket = D["libur"][tgl]
-            st.info("Tanggal ini dikecualikan" + (f": {ket}" if ket else "")
-                    + ". Tidak dihitung di tab Belum mengisi.")
+            tgl_d = st.session_state.tgl_in
+            tgl = tgl_d.isoformat()
+            if tgl in D["libur"]:
+                ket = D["libur"][tgl]
+                st.info("Tanggal ini dikecualikan" + (f": {ket}" if ket else "")
+                        + ". Tidak dihitung di tab Belum mengisi.")
 
-        kats = D["kategori"]
-        pks = pilih_pekerja("f_bidang_tgl", per_nama=True)
+            kats = D["kategori"]
+            pks = pilih_pekerja("f_bidang_tgl", per_nama=True)
         status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
         belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
         total = len(kats) * len(pks)
         sudah = total - belum
-        st.progress(sudah / total if total else 0.0,
-                    text=f"{fmt(tgl_d)} · {sudah} dari {total} sudah terisi"
-                         + (" ✓" if not belum else ""))
+        st.markdown(
+            '<div class="statcard"><div class="sc-kiri">'
+            '<span class="tag">WFA Jumat</span>'
+            + ('<span class="tag tag-m">Dikecualikan</span>' if tgl in D["libur"] else "")
+            + f'<div class="sc-judul">{html.escape(fmt(tgl_d))}</div>'
+            f'<div class="sc-ket">{sudah} dari {total} isian sudah terisi'
+            + (" ✓" if not belum else "") + '</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Sudah</div>'
+            f'<div class="sc-val g">{sudah}</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Belum</div>'
+            f'<div class="sc-val m">{belum}</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Total</div>'
+            f'<div class="sc-val">{total}</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Pekerja</div>'
+            f'<div class="sc-val">{len(pks)}</div></div></div>',
+            unsafe_allow_html=True)
+        st.progress(sudah / total if total else 0.0)
         if st.session_state.get("pesan_isian"):
             st.error(st.session_state.pesan_isian)
 
-        ada_jabatan = any(p.get("jabatan") for p in pks)
-        lebar = [4] + ([3] if ada_jabatan else []) + [2.2] * len(kats)
-        geser = 2 if ada_jabatan else 1
-        kepala = st.columns(lebar)
-        kepala[0].markdown("**Pegawai**")
-        if ada_jabatan:
-            kepala[1].markdown("**Jabatan**")
-        for i, k in enumerate(kats):
-            kepala[geser + i].markdown(f"**{k['nama']}**")
-            kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
-                                     args=(tgl, k["id"], [p["id"] for p in pks]))
-        for judul, anggota in kelompok(pks):
-            if judul:
-                judul_bidang(judul, len(anggota))
-            # yang paling banyak belum terisi di atas; sama banyak: urut nama
-            anggota = sorted(anggota, key=lambda p: (
-                -sum(not status(k["id"], p["id"]) for k in kats),
-                nama_lengkap(p).lower()))
-            for p in anggota:
-                st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-                baris = st.columns(lebar, vertical_alignment="center")
-                nip = p.get("nip", "")
-                baris[0].markdown(
-                    f'<div class="peg">{html.escape(nama_lengkap(p))}</div>'
-                    + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
-                    unsafe_allow_html=True)
-                if ada_jabatan:
-                    baris[1].write(p.get("jabatan", ""))
-                for i, k in enumerate(kats):
-                    ya = status(k["id"], p["id"])
-                    baris[geser + i].button(
-                        "✓ Sudah" if ya else "Belum",
-                        key=f"cell_{'sudah' if ya else 'belum'}_{k['id']}_{p['id']}",
-                        on_click=cb_balik, args=(tgl, k["id"], p["id"]))
-        st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-        st.caption("Setiap ketukan langsung tersimpan.")
+        with st.container(key="kartu_tabel"):
+            ada_jabatan = any(p.get("jabatan") for p in pks)
+            lebar = [4] + ([3] if ada_jabatan else []) + [2.2] * len(kats)
+            geser = 2 if ada_jabatan else 1
+            kepala = st.columns(lebar)
+            kepala[0].markdown("**Pegawai**")
+            if ada_jabatan:
+                kepala[1].markdown("**Jabatan**")
+            for i, k in enumerate(kats):
+                kepala[geser + i].markdown(f"**{k['nama']}**")
+                kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
+                                         args=(tgl, k["id"], [p["id"] for p in pks]))
+            for judul, anggota in kelompok(pks):
+                if judul:
+                    judul_bidang(judul, len(anggota))
+                # yang paling banyak belum terisi di atas; sama banyak: urut nama
+                anggota = sorted(anggota, key=lambda p: (
+                    -sum(not status(k["id"], p["id"]) for k in kats),
+                    nama_lengkap(p).lower()))
+                for p in anggota:
+                    st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+                    baris = st.columns(lebar, vertical_alignment="center")
+                    nip = p.get("nip", "")
+                    baris[0].markdown(
+                        f'<div class="peg">{html.escape(nama_lengkap(p))}</div>'
+                        + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
+                        unsafe_allow_html=True)
+                    if ada_jabatan:
+                        baris[1].write(p.get("jabatan", ""))
+                    for i, k in enumerate(kats):
+                        ya = status(k["id"], p["id"])
+                        baris[geser + i].button(
+                            "✓ Sudah" if ya else "Belum",
+                            key=f"cell_{'sudah' if ya else 'belum'}_{k['id']}_{p['id']}",
+                            on_click=cb_balik, args=(tgl, k["id"], p["id"]))
+            st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+            st.caption("Setiap ketukan langsung tersimpan.")
 
 # -------------------------------------------------------------------- laporan
 if halaman == "Belum mengisi":
@@ -558,10 +611,6 @@ def cb_urut(kol: str):
     """Ketuk judul kolom: urut naik; ketuk lagi: turun; ketuk lagi: naik."""
     kini = st.session_state.get("pg_urut", ("no", True))
     st.session_state.pg_urut = (kol, not kini[1] if kini[0] == kol else True)
-
-
-def atur(kunci: str, nilai):
-    st.session_state[kunci] = nilai
 
 
 def ada_kembar(nama_nama) -> bool:
