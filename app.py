@@ -38,6 +38,10 @@ h3{font-size:1.15rem !important}
   background:rgba(217,72,43,.14) !important;color:#d9482b !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
 [data-testid="InputInstructions"]{display:none}
+.thead{background:#6a79de;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
+[class*="st-key-pgedit_"] button,[class*="st-key-pghapus_"] button{min-height:2rem;padding:.1rem .5rem;border:0 !important;color:#fff !important}
+[class*="st-key-pgedit_"] button{background:#2f9be6 !important}
+[class*="st-key-pghapus_"] button{background:#e8453c !important}
 .ket{opacity:.7;font-size:.9rem}
 .garis{border-top:1px solid rgba(128,128,128,.3);margin:.3rem 0}
 .peg{font-weight:650}
@@ -70,6 +74,12 @@ GOLONGAN = ["I/a", "I/b", "I/c", "I/d", "II/a", "II/b", "II/c", "II/d",
 GOLONGAN_PPPK = ["PPPK " + r for r in (
     "I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII".split())]
 GOLONGAN += GOLONGAN_PPPK
+PANGKAT = {"I/a": "Juru Muda", "I/b": "Juru Muda Tingkat I", "I/c": "Juru", "I/d": "Juru Tingkat I",
+           "II/a": "Pengatur Muda", "II/b": "Pengatur Muda Tingkat I", "II/c": "Pengatur",
+           "II/d": "Pengatur Tingkat I", "III/a": "Penata Muda", "III/b": "Penata Muda Tingkat I",
+           "III/c": "Penata", "III/d": "Penata Tingkat I", "IV/a": "Pembina",
+           "IV/b": "Pembina Tingkat I", "IV/c": "Pembina Utama Muda", "IV/d": "Pembina Utama Madya",
+           "IV/e": "Pembina Utama"}
 ESELON = ["I.a", "I.b", "II.a", "II.b", "III.a", "III.b", "IV.a", "IV.b", "Non eselon"]
 JENIS_JABATAN = ["Struktural", "Fungsional", "Pelaksana"]
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
@@ -572,15 +582,48 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            for p in sorted(D["pekerja"], key=lambda x: x["nama"].lower()):
-                c1, c2 = st.columns([6, 1.5], vertical_alignment="center")
-                c1.markdown(f"**{nama_lengkap(p)}**")
-                info = " · ".join(x for x in (nama_bidang(p) if D["bidang"] else "",
-                                              p.get("jabatan", ""),
-                                              "" if aktif(p) else "Nonaktif") if x)
-                if info:
-                    c1.caption(info)
-                c2.button("Ubah", key=f"ubah_pg_{p['id']}", on_click=atur, args=("pg_mode", p["id"]))
+            def teks_gol(p):
+                g = p.get("golongan", "")
+                return f"{PANGKAT[g]} ({g})" if g in PANGKAT else g
+
+            def teks_esl(p):
+                e = p.get("eselon", "")
+                if e and e != "Non eselon":
+                    return e
+                j = p.get("jenis_jabatan", "")
+                return f"Jabatan {j}" if j else e
+
+            lebar = [1.1, 3.2, 2.8, 2.8, 2.4, 2.0, 1.7]
+            for kol, judul in zip(st.columns(lebar), ["No.", "NIP", "Nama Pegawai", "Jabatan Pegawai",
+                                                       "Golongan", "Eselon", "#"]):
+                kol.markdown(f'<div class="thead">{judul}</div>', unsafe_allow_html=True)
+            urut = sorted(D["pekerja"], key=lambda x: x["nama"].lower())
+            for no, p in enumerate(urut, 1):
+                st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+                k = st.columns(lebar, vertical_alignment="center")
+                k[0].write(f"{no}.")
+                k[1].write(p.get("nip", ""))
+                k[2].markdown(f"{html.escape(nama_lengkap(p))}"
+                              + ("" if aktif(p) else " *(nonaktif)*"))
+                if D["bidang"]:
+                    k[2].caption(nama_bidang(p))
+                k[3].write(p.get("jabatan", ""))
+                k[4].write(teks_gol(p))
+                k[5].write(teks_esl(p))
+                t1, t2 = k[6].columns(2)
+                t1.button("✏️", key=f"pgedit_{p['id']}", help="Ubah",
+                          on_click=atur, args=("pg_mode", p["id"]))
+                t2.button("🗑️", key=f"pghapus_{p['id']}", help="Hapus",
+                          on_click=atur, args=("pg_hapus", p["id"]))
+                if st.session_state.get("pg_hapus") == p["id"]:
+                    st.warning(f"Hapus {nama_lengkap(p)}? Isian yang tercatat atas nama ini "
+                               "ikut hilang dari rekap.")
+                    y, n, _ = st.columns([1, 1, 4])
+                    if y.button("Ya, hapus", type="primary", key=f"pgya_{p['id']}"):
+                        D["pekerja"] = [x for x in D["pekerja"] if x["id"] != p["id"]]
+                        selesai_simpan("Dihapus.", pg_hapus=None)
+                    n.button("Batal", key=f"pgbatal_{p['id']}", on_click=atur, args=("pg_hapus", None))
+            st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
             return
 
         p = by_id.get(mode, {})
