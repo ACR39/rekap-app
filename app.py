@@ -37,6 +37,7 @@ h3{font-size:1.15rem !important}
 [class*="st-key-chip_"] button{min-height:0;padding:.12rem .7rem;border:0 !important;border-radius:999px;
   background:rgba(217,72,43,.14) !important;color:#d9482b !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
+[data-testid="InputInstructions"]{display:none}
 .ket{opacity:.7;font-size:.9rem}
 .garis{border-top:1px solid rgba(128,128,128,.3);margin:.3rem 0}
 .peg{font-weight:650}
