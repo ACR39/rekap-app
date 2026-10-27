@@ -582,20 +582,9 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            def teks_gol(p):
-                g = p.get("golongan", "")
-                return f"{PANGKAT[g]} ({g})" if g in PANGKAT else g
-
-            def teks_esl(p):
-                e = p.get("eselon", "")
-                if e and e != "Non eselon":
-                    return e
-                j = p.get("jenis_jabatan", "")
-                return f"Jabatan {j}" if j else e
-
-            lebar = [1.1, 3.2, 2.8, 2.8, 2.4, 2.0, 1.7]
-            for kol, judul in zip(st.columns(lebar), ["No.", "NIP", "Nama Pegawai", "Jabatan Pegawai",
-                                                       "Golongan", "Eselon", "#"]):
+            lebar = [1.1, 3.2, 3.2, 3.2, 2.4, 1.7]
+            for kol, judul in zip(st.columns(lebar), ["No.", "NIP", "Nama Pegawai", "Jabatan",
+                                                       "Bidang", "#"]):
                 kol.markdown(f'<div class="thead">{judul}</div>', unsafe_allow_html=True)
             urut = sorted(D["pekerja"], key=lambda x: x["nama"].lower())
             for no, p in enumerate(urut, 1):
@@ -605,12 +594,9 @@ def halaman_pegawai():
                 k[1].write(p.get("nip", ""))
                 k[2].markdown(f"{html.escape(nama_lengkap(p))}"
                               + ("" if aktif(p) else " *(nonaktif)*"))
-                if D["bidang"]:
-                    k[2].caption(nama_bidang(p))
                 k[3].write(p.get("jabatan", ""))
-                k[4].write(teks_gol(p))
-                k[5].write(teks_esl(p))
-                t1, t2 = k[6].columns(2)
+                k[4].write(nama_bidang(p) if D["bidang"] else "")
+                t1, t2 = k[5].columns(2)
                 t1.button("✏️", key=f"pgedit_{p['id']}", help="Ubah",
                           on_click=atur, args=("pg_mode", p["id"]))
                 t2.button("🗑️", key=f"pghapus_{p['id']}", help="Hapus",
