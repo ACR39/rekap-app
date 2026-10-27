@@ -13,6 +13,7 @@ import os
 import uuid
 from datetime import date, timedelta
 
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -40,7 +41,7 @@ st.markdown("""
 [class*="st-key-nav_"] button > div,[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
 [class*="st-key-nav_"] button p{width:100%;text-align:left !important;justify-content:flex-start !important}
 [class*="st-key-nav_"] button:hover{filter:brightness(1.2)}
-.st-key-kartu_filter,.st-key-kartu_tabel,.st-key-kartu_pegawai{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
+.st-key-kartu_filter,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
 .statcard{display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e3e7ee;border-radius:16px;
@@ -421,11 +422,11 @@ if not cfg_github():
 
 UTAMA = ["Per tanggal", "Belum mengisi"]
 MASTER = ["Pegawai", "Bidang", "Kategori", "Tanggal dikecualikan", "Cadangan dan pindah data"]
-HALAMAN = UTAMA + MASTER
+HALAMAN = ["Beranda"] + UTAMA + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
-    st.session_state.halaman = HALAMAN[0]
+    st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Per tanggal": "📅", "Belum mengisi": "⏳", "Pegawai": "👥", "Bidang": "🏢",
+IKON = {"Beranda": "🏠", "Per tanggal": "📅", "Belum mengisi": "⏳", "Pegawai": "👥", "Bidang": "🏢",
         "Kategori": "🏷️", "Tanggal dikecualikan": "🚫", "Cadangan dan pindah data": "💾"}
 with st.sidebar:
     st.markdown('<div class="brand"><div class="b1">Rekap Isian Pekerja</div>'
@@ -436,6 +437,7 @@ with st.sidebar:
                   type="primary" if h == halaman else "secondary",
                   on_click=atur, args=("halaman", h))
 
+    tombol_nav("Beranda")
     with st.expander("📌  Aktivitas WFA", expanded=halaman in UTAMA):
         for h in UTAMA:
             tombol_nav(h)
@@ -449,8 +451,95 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
-st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else "AKTIVITAS WFA"}</div><div class="judul-hal">{halaman}</div>',
+st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("RINGKASAN" if halaman == "Beranda" else "AKTIVITAS WFA")}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
+
+# -------------------------------------------------------------------- beranda
+if halaman == "Beranda":
+    if not D["pekerja"] or not D["kategori"]:
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
+    else:
+        with st.container(key="kartu_filter"):
+            f1, f2, f3 = st.columns(3)
+            b_dari = f1.date_input("Dari", value=AWAL_WFA, key="b_dari", format="DD/MM/YYYY")
+            b_sampai = f2.date_input("Sampai", value=date.today(), key="b_sampai", format="DD/MM/YYYY")
+            with f3:
+                pks_b = pilih_pekerja("f_bidang_ber")
+        if b_dari > b_sampai:
+            st.error("Tanggal awal harus sebelum tanggal akhir.")
+        elif (b_sampai - b_dari).days + 1 > MAKS_HARI:
+            st.error("Rentang maksimal 2 tahun (731 hari).")
+        else:
+            kats_b = D["kategori"]
+            jumat = []
+            d = b_dari
+            while d <= b_sampai:
+                if d.weekday() == 4 and d.isoformat() not in D["libur"]:
+                    jumat.append(d)
+                d += timedelta(days=1)
+            if not jumat or not pks_b:
+                st.info("Belum ada hari Jumat WFA pada rentang ini, atau tidak ada pekerja yang dipilih.")
+            else:
+                per_hari = []                       # (tanggal, sudah, total)
+                per_bidang, per_kat, per_orang = {}, {}, {}
+                for t in jumat:
+                    iso = t.isoformat()
+                    sudah_h = 0
+                    for k in kats_b:
+                        for p in pks_b:
+                            ya = terisi(iso, k["id"], p["id"])
+                            sudah_h += ya
+                            for kamus, kunci in ((per_bidang, nama_bidang(p)), (per_kat, k["nama"])):
+                                a_, b_ = kamus.get(kunci, (0, 0))
+                                kamus[kunci] = (a_ + ya, b_ + 1)
+                            if not ya:
+                                per_orang[p["id"]] = per_orang.get(p["id"], 0) + 1
+                    per_hari.append((t, sudah_h, len(kats_b) * len(pks_b)))
+                tot_sudah = sum(x[1] for x in per_hari)
+                tot_semua = sum(x[2] for x in per_hari)
+                persen = lambda a_, b_: round(100 * a_ / b_, 1) if b_ else 0.0
+                pembaruan = per_hari[-1]
+                st.markdown(
+                    '<div class="statcard"><div class="sc-kiri"><span class="tag">Ringkasan</span>'
+                    f'<div class="sc-judul">{persen(tot_sudah, tot_semua)}% terisi</div>'
+                    f'<div class="sc-ket">{fmt(jumat[0])} s.d. {fmt(jumat[-1])}</div></div>'
+                    f'<div class="sc-stat"><div class="sc-lab">Hari Jumat</div><div class="sc-val">{len(jumat)}</div></div>'
+                    f'<div class="sc-stat"><div class="sc-lab">Pekerja</div><div class="sc-val">{len(pks_b)}</div></div>'
+                    f'<div class="sc-stat"><div class="sc-lab">Sudah</div><div class="sc-val g">{tot_sudah}</div></div>'
+                    f'<div class="sc-stat"><div class="sc-lab">Belum</div><div class="sc-val m">{tot_semua - tot_sudah}</div></div>'
+                    f'<div class="sc-stat"><div class="sc-lab">Jumat terakhir</div><div class="sc-val">{persen(pembaruan[1], pembaruan[2])}%</div></div>'
+                    '</div>', unsafe_allow_html=True)
+
+                g1, g2 = st.columns([3, 2])
+                with g1.container(key="kartu_g1"):
+                    st.markdown("**Keterisian per Jumat (%)**")
+                    tren = pd.DataFrame(
+                        {"Tanggal": [pd.Timestamp(x[0]) for x in per_hari],
+                         "Keterisian (%)": [persen(x[1], x[2]) for x in per_hari]})
+                    st.line_chart(tren, x="Tanggal", y="Keterisian (%)", color="#2b7a57", height=280)
+                with g2.container(key="kartu_g2"):
+                    st.markdown("**Keterisian per kategori (%)**")
+                    dk = pd.DataFrame({"Kategori": list(per_kat),
+                                       "Keterisian (%)": [persen(*v) for v in per_kat.values()]})
+                    st.bar_chart(dk, x="Kategori", y="Keterisian (%)", color="#2b7a57", height=280)
+                h1, h2 = st.columns(2)
+                with h1.container(key="kartu_g3"):
+                    st.markdown("**Keterisian per bidang (%)**")
+                    db = pd.DataFrame({"Bidang": list(per_bidang),
+                                       "Keterisian (%)": [persen(*v) for v in per_bidang.values()]})
+                    st.bar_chart(db, x="Bidang", y="Keterisian (%)", horizontal=True,
+                                 sort="-Keterisian (%)", color="#2b7a57", height=280)
+                with h2.container(key="kartu_g4"):
+                    st.markdown("**Paling sering belum mengisi**")
+                    nama_p = {p["id"]: nama_lengkap(p) for p in pks_b}
+                    top = sorted(per_orang.items(), key=lambda kv: (-kv[1], nama_p[kv[0]].lower()))[:8]
+                    if top:
+                        dt = pd.DataFrame({"Pegawai": [nama_p[k] for k, _ in top],
+                                           "Belum terisi": [v for _, v in top]})
+                        st.bar_chart(dt, x="Pegawai", y="Belum terisi", horizontal=True,
+                                     sort="-Belum terisi", color="#b42318", height=280)
+                    else:
+                        st.success("Semua sudah mengisi.")
 
 # --------------------------------------------------------------- per tanggal
 if halaman == "Per tanggal":
