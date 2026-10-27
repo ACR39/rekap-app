@@ -559,6 +559,15 @@ def halaman_pegawai():
                       on_click=atur, args=("pg_mode", "baru"))
             if not D["pekerja"]:
                 st.write("Belum ada pegawai.")
+            hitung = {}
+            for x in D["pekerja"]:
+                hitung.setdefault(" ".join(x["nama"].lower().split()), []).append(x)
+                if x.get("nip"):
+                    hitung.setdefault("nip:" + "".join(str(x["nip"]).split()), []).append(x)
+            ganda = sorted({nama_lengkap(x) for v in hitung.values() if len(v) > 1 for x in v})
+            if ganda:
+                st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
+                           + ". Ubah atau hapus salah satunya.")
             for p in D["pekerja"]:
                 c1, c2 = st.columns([6, 1.5], vertical_alignment="center")
                 c1.markdown(f"**{nama_lengkap(p)}**")
@@ -614,11 +623,15 @@ def halaman_pegawai():
                     D["pekerja"] = [x for x in D["pekerja"] if x["id"] != mode]
                     selesai_simpan("Dihapus.", pg_mode=None)
             if simpan:
-                nama, nip = nama.strip(), nip.strip()
+                nama, nip = nama.strip(), "".join(nip.split())
+                lain = next((x for x in D["pekerja"]
+                             if x["id"] != mode and "".join(str(x.get("nip", "")).split()) == nip), None)
                 if not nama:
                     st.error("Nama pegawai wajib diisi.")
-                elif nip and any(x.get("nip") == nip and x["id"] != mode for x in D["pekerja"]):
-                    st.error("NIP itu sudah dipakai pegawai lain.")
+                elif not nip:
+                    st.error("NIP wajib diisi.")
+                elif lain:
+                    st.error(f"NIP itu sudah dipakai {nama_lengkap(lain)}.")
                 else:
                     baru = dict(p) if mode != "baru" else {"id": uuid.uuid4().hex[:8]}
                     isi = {"nama": nama, "nip": nip, "gelar_depan": gd.strip(),
