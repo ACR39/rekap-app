@@ -661,7 +661,7 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            lebar = [1.7, 3.0, 3.0, 3.0, 2.3, 1.7]
+            lebar = [1.2, 2.7, 4.2, 3.0, 2.2, 1.7]
             kolom = [("no", "No."), ("nip", "NIP"), ("nama", "Nama Pegawai"),
                      ("jabatan", "Jabatan"), ("bidang", "Bidang")]
             kini, naik = st.session_state.get("pg_urut", ("no", True))
