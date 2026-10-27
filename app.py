@@ -36,7 +36,9 @@ st.markdown("""
 [class*="st-key-nav_"] button{justify-content:flex-start;border:0 !important;border-radius:12px;min-height:2.7rem;
   background:#131c2e !important;color:#e5e7eb !important;font-weight:600}
 [class*="st-key-nav_"] button[kind="primary"]{background:#2b7a57 !important;color:#fff !important}
-[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"]{width:100%;text-align:left}
+[class*="st-key-nav_"] button{justify-content:flex-start !important;text-align:left !important}
+[class*="st-key-nav_"] button > div,[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
+[class*="st-key-nav_"] button p{width:100%;text-align:left !important;justify-content:flex-start !important}
 [class*="st-key-nav_"] button:hover{filter:brightness(1.2)}
 .st-key-kartu_filter,.st-key-kartu_tabel{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
@@ -434,8 +436,9 @@ with st.sidebar:
                   type="primary" if h == halaman else "secondary",
                   on_click=atur, args=("halaman", h))
 
-    for h in UTAMA:
-        tombol_nav(h)
+    with st.expander("📌  Aktivitas WFA", expanded=halaman in UTAMA):
+        for h in UTAMA:
+            tombol_nav(h)
     with st.expander("🗂️  Master data", expanded=halaman in MASTER):
         for h in MASTER:
             tombol_nav(h)
@@ -446,7 +449,7 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
-st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else "REKAP ISIAN PEKERJA"}</div><div class="judul-hal">{halaman}</div>',
+st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else "AKTIVITAS WFA"}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
 # --------------------------------------------------------------- per tanggal
