@@ -30,6 +30,9 @@ st.markdown("""
 .brand .b1{font-weight:700;font-size:1.05rem;color:#fff}
 .brand .b2{font-size:.78rem;color:#94a3b8;margin-top:.1rem}
 .sp{height:1.2rem}
+.grup{font-size:.68rem;font-weight:700;letter-spacing:.1em;color:#64748b;margin:.9rem 0 .3rem .2rem}
+[data-testid="stSidebar"] [data-testid="stExpander"]{background:#0f1829;border:1px solid rgba(255,255,255,.08);box-shadow:none}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary{font-weight:600}
 [class*="st-key-nav_"] button{justify-content:flex-start;border:0 !important;border-radius:12px;min-height:2.7rem;
   background:#131c2e !important;color:#e5e7eb !important;font-weight:600}
 [class*="st-key-nav_"] button[kind="primary"]{background:#2b7a57 !important;color:#fff !important}
@@ -414,19 +417,28 @@ if not cfg_github():
     st.warning("Mode uji coba: data disimpan di file lokal dan bisa hilang saat aplikasi "
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
-HALAMAN = ["Per tanggal", "Belum mengisi", "Kelola"]
+UTAMA = ["Per tanggal", "Belum mengisi"]
+MASTER = ["Pegawai", "Bidang", "Kategori", "Tanggal dikecualikan", "Cadangan dan pindah data"]
+HALAMAN = UTAMA + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = HALAMAN[0]
 halaman = st.session_state.halaman
-IKON = {"Per tanggal": "📅", "Belum mengisi": "⏳", "Kelola": "⚙️"}
+IKON = {"Per tanggal": "📅", "Belum mengisi": "⏳", "Pegawai": "👥", "Bidang": "🏢",
+        "Kategori": "🏷️", "Tanggal dikecualikan": "🚫", "Cadangan dan pindah data": "💾"}
 with st.sidebar:
     st.markdown('<div class="brand"><div class="b1">Rekap Isian Pekerja</div>'
                 '<div class="b2">Pencatatan keterisian laporan WFA</div></div>',
                 unsafe_allow_html=True)
-    for h in HALAMAN:
+    def tombol_nav(h):
         st.button(f"{IKON[h]}  {h}", key=f"nav_{h}", use_container_width=True,
                   type="primary" if h == halaman else "secondary",
                   on_click=atur, args=("halaman", h))
+
+    for h in UTAMA:
+        tombol_nav(h)
+    with st.expander("🗂️  Master data", expanded=halaman in MASTER):
+        for h in MASTER:
+            tombol_nav(h)
     st.markdown('<div class="sp"></div>', unsafe_allow_html=True)
     if st.button("🔄  Muat ulang", key="nav_muat", use_container_width=True,
                  help="Ambil data terbaru dari penyimpanan"):
@@ -434,13 +446,13 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
-st.markdown(f'<div class="eyebrow">REKAP ISIAN PEKERJA</div><div class="judul-hal">{halaman}</div>',
+st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else "REKAP ISIAN PEKERJA"}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
 # --------------------------------------------------------------- per tanggal
 if halaman == "Per tanggal":
     if not D["pekerja"] or not D["kategori"]:
-        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
     else:
         with st.container(key="kartu_filter"):
             c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
@@ -527,7 +539,7 @@ if halaman == "Per tanggal":
 # -------------------------------------------------------------------- laporan
 if halaman == "Belum mengisi":
     if not D["pekerja"] or not D["kategori"]:
-        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di tab Kelola.")
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
     else:
         a, b, c = st.columns(3)
         dari = a.date_input("Dari", value=AWAL_WFA, key="dari", format="DD/MM/YYYY")
@@ -761,7 +773,7 @@ def halaman_pegawai():
 def daftar_sederhana(judul: str, kunci: str, hint: str):
     """Daftar nama dengan tombol Ubah nama dan Hapus per baris, dan kolom tambah di bawah."""
     k_edit, k_hapus = f"edit_{kunci}", f"hapus_{kunci}"
-    with st.expander(f"{judul} ({len(D[kunci])})"):
+    with st.expander(f"{judul} ({len(D[kunci])})", expanded=True):
         st.caption(hint)
         if not D[kunci]:
             st.write("Belum ada.")
@@ -806,7 +818,7 @@ def daftar_sederhana(judul: str, kunci: str, hint: str):
 
 
 def daftar_libur():
-    with st.expander(f"Tanggal dikecualikan ({len(D['libur'])})"):
+    with st.expander(f"Tanggal dikecualikan ({len(D['libur'])})", expanded=True):
         st.caption("Tanggal merah atau hari lain yang tidak perlu diisi. "
                    "Tidak dihitung sebagai belum mengisi.")
         if not D["libur"]:
@@ -833,7 +845,7 @@ def daftar_libur():
 
 
 def cadangan():
-    with st.expander("Cadangan dan pindah data"):
+    with st.expander("Cadangan dan pindah data", expanded=True):
         st.caption("Unduh seluruh data sebagai file, atau muat file data dari tempat lain. "
                    "Memuat file akan **mengganti semua data** yang ada sekarang.")
         st.download_button("Unduh data.json",
@@ -865,13 +877,17 @@ def cadangan():
                         selesai_simpan("Data dimuat.")
 
 
-if halaman == "Kelola":
+if halaman == "Pegawai":
     halaman_pegawai()
+if halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
+if halaman == "Kategori":
     daftar_sederhana("Kategori", "kategori", "Jenis isian, misalnya laporan harian.")
-    daftar_libur()
-    cadangan()
     st.caption("Menghapus kategori menyembunyikannya dari rekap. "
                "Riwayat isiannya tetap tersimpan di file data.")
+if halaman == "Tanggal dikecualikan":
+    daftar_libur()
+if halaman == "Cadangan dan pindah data":
+    cadangan()
