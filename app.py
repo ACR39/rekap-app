@@ -20,7 +20,7 @@ st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="📋", layout="w
 
 st.markdown("""
 <style>
-.block-container{padding-top:2.2rem;padding-bottom:4rem;max-width:1100px}
+.block-container{padding:3.4rem 2rem 4rem;max-width:1600px}
 .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;color:#2b7a57}
 .judul-hal{font-size:1.6rem;font-weight:700;color:#111827;margin:.1rem 0 1rem}
 [data-testid="stSidebar"]{background:#0b1220}
