@@ -39,6 +39,10 @@ h3{font-size:1.15rem !important}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
 [data-testid="InputInstructions"]{display:none}
 .thead{background:#6a79de;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
+[class*="st-key-thead_"],[class*="st-key-thead_"] [data-testid="stButton"]{width:100%}
+[class*="st-key-thead_"] button{width:100%;background:#6a79de !important;color:#fff !important;border:0 !important;
+  font-weight:650;border-radius:4px;min-height:2.4rem;padding:.2rem .3rem;white-space:nowrap}
+[class*="st-key-thead_"] button:hover{filter:brightness(.92)}
 [class*="st-key-pgedit_"] button,[class*="st-key-pghapus_"] button{min-height:2rem;padding:.1rem .5rem;border:0 !important;color:#fff !important}
 [class*="st-key-pgedit_"] button{background:#2f9be6 !important}
 [class*="st-key-pghapus_"] button{background:#e8453c !important}
@@ -549,6 +553,12 @@ def selesai_simpan(pesan: str, **setelah):
         st.rerun()
 
 
+def cb_urut(kol: str):
+    """Ketuk judul kolom: urut naik; ketuk lagi: turun; ketuk lagi: naik."""
+    kini = st.session_state.get("pg_urut", ("no", True))
+    st.session_state.pg_urut = (kol, not kini[1] if kini[0] == kol else True)
+
+
 def atur(kunci: str, nilai):
     st.session_state[kunci] = nilai
 
@@ -582,11 +592,23 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            lebar = [1.1, 3.2, 3.2, 3.2, 2.4, 1.7]
-            for kol, judul in zip(st.columns(lebar), ["No.", "NIP", "Nama Pegawai", "Jabatan",
-                                                       "Bidang", "#"]):
-                kol.markdown(f'<div class="thead">{judul}</div>', unsafe_allow_html=True)
-            urut = sorted(D["pekerja"], key=lambda x: x["nama"].lower())
+            lebar = [1.7, 3.0, 3.0, 3.0, 2.3, 1.7]
+            kolom = [("no", "No."), ("nip", "NIP"), ("nama", "Nama Pegawai"),
+                     ("jabatan", "Jabatan"), ("bidang", "Bidang")]
+            kini, naik = st.session_state.get("pg_urut", ("no", True))
+            kepala = st.columns(lebar)
+            for kol, (kode, judul) in zip(kepala, kolom):
+                tanda = ("▲" if naik else "▼") if kode == kini else "⇅"
+                kol.button(f"{judul}  {tanda}", key=f"thead_{kode}", on_click=cb_urut, args=(kode,))
+            kepala[5].markdown('<div class="thead">#</div>', unsafe_allow_html=True)
+            kunci_urut = {
+                "no": lambda x: x["nama"].lower(),
+                "nip": lambda x: "".join(str(x.get("nip", "")).split()),
+                "nama": lambda x: x["nama"].lower(),
+                "jabatan": lambda x: (x.get("jabatan", "") == "", x.get("jabatan", "").lower()),
+                "bidang": lambda x: (nama_bidang(x).lower(), x["nama"].lower()),
+            }[kini]
+            urut = sorted(D["pekerja"], key=kunci_urut, reverse=not naik)
             for no, p in enumerate(urut, 1):
                 st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
                 k = st.columns(lebar, vertical_alignment="center")
