@@ -298,7 +298,8 @@ def pilih_pekerja(kunci: str, per_nama: bool = False):
     if per_nama:
         dipilih = st.multiselect(
             "Nama (kosongkan untuk menampilkan semua)",
-            [p["id"] for p in hasil], key=f"{kunci}_nama",
+            [p["id"] for p in sorted(hasil, key=lambda x: x["nama"].lower())],
+            key=f"{kunci}_nama",
             format_func=lambda i: nama_lengkap(next(p for p in hasil if p["id"] == i)),
             placeholder="Semua orang di bidang ini")
         if dipilih:
