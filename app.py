@@ -482,7 +482,7 @@ if not cfg_github():
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 UTAMA = ["Per tanggal", "Belum mengisi"]
-MASTER = ["Pegawai", "Bidang", "Kategori", "Tanggal dikecualikan", "Cadangan dan pindah data"]
+MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan", "Rekap triwulan"]
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
@@ -550,7 +550,7 @@ def pilih_periode(sufiks: str, dengan_tw: bool):
 # -------------------------------------------------------------------- beranda
 if halaman == "Beranda":
     if not D["pekerja"] or not D["kategori"]:
-        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
         with st.container(key="kartu_filter"):
             f1, f2, f3 = st.columns(3)
@@ -603,18 +603,12 @@ if halaman == "Beranda":
                     f'<div class="sc-stat"><div class="sc-lab">Jumat terakhir</div><div class="sc-val">{persen(pembaruan[1], pembaruan[2])}%</div></div>'
                     '</div>', unsafe_allow_html=True)
 
-                g1, g2 = st.columns([3, 2])
-                with g1.container(key="kartu_g1"):
+                with st.container(key="kartu_g1"):
                     st.markdown("**Keterisian per Jumat (%)**")
                     tren = pd.DataFrame(
                         {"Tanggal": [pd.Timestamp(x[0]) for x in per_hari],
                          "Keterisian (%)": [persen(x[1], x[2]) for x in per_hari]})
                     st.line_chart(tren, x="Tanggal", y="Keterisian (%)", color="#2b7a57", height=280)
-                with g2.container(key="kartu_g2"):
-                    st.markdown("**Keterisian per kategori (%)**")
-                    dk = pd.DataFrame({"Kategori": list(per_kat),
-                                       "Keterisian (%)": [persen(*v) for v in per_kat.values()]})
-                    st.bar_chart(dk, x="Kategori", y="Keterisian (%)", color="#2b7a57", height=280)
                 h1, h2 = st.columns(2)
                 with h1.container(key="kartu_g3"):
                     st.markdown("**Keterisian per bidang (%)**")
@@ -765,7 +759,7 @@ if halaman == "Rekap triwulan" and D["pekerja"]:
 # --------------------------------------------------------------- per tanggal
 if halaman == "Per tanggal":
     if not D["pekerja"] or not D["kategori"]:
-        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
         with st.container(key="kartu_filter"):
             c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
@@ -852,7 +846,7 @@ if halaman == "Per tanggal":
 # -------------------------------------------------------------------- laporan
 if halaman == "Belum mengisi":
     if not D["pekerja"] or not D["kategori"]:
-        st.info("Belum ada pekerja atau kategori. Tambahkan dulu di menu Master (Pegawai dan Kategori).")
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
         a, b, c = st.columns(3)
         dari = a.date_input("Dari", value=AWAL_WFA, key="dari", format="DD/MM/YYYY")
@@ -1205,10 +1199,6 @@ if halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
-if halaman == "Kategori":
-    daftar_sederhana("Kategori", "kategori", "Jenis isian, misalnya laporan harian.")
-    st.caption("Menghapus kategori menyembunyikannya dari rekap. "
-               "Riwayat isiannya tetap tersimpan di file data.")
 if halaman == "Tanggal dikecualikan":
     daftar_libur()
 if halaman == "Cadangan dan pindah data":
