@@ -74,6 +74,7 @@ st.markdown("""
   background:#fde8e6 !important;color:#b42318 !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
 [data-testid="InputInstructions"]{display:none}
+.thead-s{background:#256b4a;color:#fff;font-weight:650;font-size:.7rem;letter-spacing:.03em;text-transform:uppercase;text-align:center;padding:.5rem .25rem;border-radius:4px;min-height:2.6rem;display:flex;align-items:center;justify-content:center}
 .thead{background:#256b4a;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
 [class*="st-key-thead_"],[class*="st-key-thead_"] [data-testid="stButton"]{width:100%}
 [class*="st-key-thead_"] button{width:100%;background:#256b4a !important;color:#fff !important;border:0 !important;
@@ -122,6 +123,13 @@ PANGKAT = {"I/a": "Juru Muda", "I/b": "Juru Muda Tingkat I", "I/c": "Juru", "I/d
            "IV/e": "Pembina Utama"}
 ESELON = ["I.a", "I.b", "II.a", "II.b", "III.a", "III.b", "IV.a", "IV.b", "Non eselon"]
 JENIS_JABATAN = ["Struktural", "Fungsional", "Pelaksana"]
+# Kolom formulir triwulan (kode, judul). Judul boleh diubah; kode jangan, karena dipakai di data.
+KOLOM_TW = [("sasaran", "Sasaran dan Indikator"), ("realisasi", "Realisasi"),
+            ("rencana", "Rencana Aksi"), ("pendorong", "Faktor Pendorong"),
+            ("penghambat", "Faktor Penghambat"), ("upaya", "Upaya"),
+            ("bukti", "Bukti Dukung"), ("ket", "Keterangan")]
+ROMAWI = {1: "I", 2: "II", 3: "III", 4: "IV"}
+BULAN_TW = {1: "Januari - Maret", 2: "April - Juni", 3: "Juli - September", 4: "Oktober - Desember"}
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
 
 
@@ -136,6 +144,7 @@ def data_kosong() -> dict:
         "kategori": [{"id": "k1", "nama": "Laporan harian"}],
         "libur": {},   # {"2026-10-23": "Keterangan"}
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
+        "triwulan": {},  # {"2026-T1": {"<id bidang>": ["realisasi", "bukti", ...]}}
     }
 
 
@@ -343,12 +352,54 @@ def pilih_pekerja(kunci: str, per_nama: bool = False):
     return hasil
 
 
+if "tw_tahun" not in st.session_state:
+    st.session_state.tw_tahun = date.today().year
+if "tw_tw" not in st.session_state:
+    st.session_state.tw_tw = (date.today().month - 1) // 3 + 1
+
 if "tgl_in" not in st.session_state:
     st.session_state.tgl_in = jumat_terakhir(date.today())
 
 
 def atur(kunci: str, nilai):
     st.session_state[kunci] = nilai
+
+
+def cb_tw_balik(kunci_tw: str, bid: str, kol: str):
+    """Centang/lepas satu kolom triwulan lalu langsung simpan."""
+    data = st.session_state.data
+    tw = data.setdefault("triwulan", {})
+    lama = copy.deepcopy(tw.get(kunci_tw))
+    isi = {k: list(v) for k, v in (lama or {}).items()}
+    daftar = isi.setdefault(bid, [])
+    if kol in daftar:
+        daftar.remove(kol)
+    else:
+        daftar.append(kol)
+    isi = {k: v for k, v in isi.items() if v}
+    if isi:
+        tw[kunci_tw] = isi
+    else:
+        tw.pop(kunci_tw, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ketuk ulang.")
+    except Exception as e:
+        if lama is None:
+            tw.pop(kunci_tw, None)
+        else:
+            tw[kunci_tw] = lama
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+
+
+def cb_tw_lompat(tahun: int, tw: int):
+    st.session_state.tw_tahun = tahun
+    st.session_state.tw_tw = tw
+    st.session_state.halaman = "Isian triwulan"
 
 
 def cb_geser(arah):
@@ -427,11 +478,12 @@ if not cfg_github():
 
 UTAMA = ["Per tanggal", "Belum mengisi"]
 MASTER = ["Pegawai", "Bidang", "Kategori", "Tanggal dikecualikan", "Cadangan dan pindah data"]
-HALAMAN = ["Beranda"] + UTAMA + MASTER
+TRIWULAN = ["Isian triwulan", "Rekap triwulan"]
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions",
+IKON = {"Isian triwulan": "checklist", "Rekap triwulan": "rule", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -458,6 +510,9 @@ with st.sidebar:
     with st.expander("Aktivitas WFA", icon=":material/assignment:", expanded=halaman in UTAMA):
         for h in UTAMA:
             tombol_nav(h)
+    with st.expander("Keterisian Triwulan", icon=":material/fact_check:", expanded=halaman in TRIWULAN):
+        for h in TRIWULAN:
+            tombol_nav(h)
     with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
         for h in MASTER:
             tombol_nav(h)
@@ -468,7 +523,7 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
-st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("RINGKASAN" if halaman == "Beranda" else "AKTIVITAS WFA")}</div><div class="judul-hal">{halaman}</div>',
+st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else "AKTIVITAS WFA"))}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
 # -------------------------------------------------------------------- beranda
@@ -557,6 +612,97 @@ if halaman == "Beranda":
                                      sort="-Belum terisi", color="#b42318", height=280)
                     else:
                         st.success("Semua sudah mengisi.")
+
+# ------------------------------------------------------------ keterisian triwulan
+def pilih_periode(sufiks: str, dengan_tw: bool):
+    """Pilih tahun (dan triwulan). Nilai terakhir diingat lintas halaman."""
+    tahun_ini = date.today().year
+    tahun_opsi = list(range(min(2026, st.session_state.tw_tahun), max(tahun_ini, st.session_state.tw_tahun) + 2))
+    k = st.columns(2 if dengan_tw else 1)
+    tahun = k[0].selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(st.session_state.tw_tahun),
+                           key=f"w_tahun_{sufiks}")
+    st.session_state.tw_tahun = tahun
+    if dengan_tw:
+        tw = k[1].selectbox("Triwulan", [1, 2, 3, 4], index=st.session_state.tw_tw - 1,
+                            key=f"w_tw_{sufiks}",
+                            format_func=lambda i: f"Triwulan {ROMAWI[i]} ({BULAN_TW[i]})")
+        st.session_state.tw_tw = tw
+    return st.session_state.tw_tahun, st.session_state.tw_tw
+
+
+if halaman in TRIWULAN and not D["bidang"]:
+    st.info("Belum ada bidang. Tambahkan dulu di menu Master data > Bidang.")
+
+if halaman == "Isian triwulan" and D["bidang"]:
+    with st.container(key="kartu_filter"):
+        tahun, tw = pilih_periode("isi", True)
+    kunci_tw = f"{tahun}-T{tw}"
+    isi_tw = D["triwulan"].get(kunci_tw, {})
+    total = len(D["bidang"]) * len(KOLOM_TW)
+    sudah = sum(len([c for c in isi_tw.get(b["id"], []) if c in dict(KOLOM_TW)]) for b in D["bidang"])
+    st.markdown(
+        '<div class="statcard"><div class="sc-kiri"><span class="tag">Triwulan</span>'
+        f'<div class="sc-judul">Triwulan {ROMAWI[tw]} {tahun}</div>'
+        f'<div class="sc-ket">{BULAN_TW[tw]} · {sudah} dari {total} kolom sudah terisi'
+        + (" ✓" if sudah == total else "") + '</div></div>'
+        f'<div class="sc-stat"><div class="sc-lab">Sudah</div><div class="sc-val g">{sudah}</div></div>'
+        f'<div class="sc-stat"><div class="sc-lab">Belum</div><div class="sc-val m">{total - sudah}</div></div>'
+        f'<div class="sc-stat"><div class="sc-lab">Bidang</div><div class="sc-val">{len(D["bidang"])}</div></div>'
+        '</div>', unsafe_allow_html=True)
+    st.progress(sudah / total if total else 0.0)
+    if st.session_state.get("pesan_isian"):
+        st.error(st.session_state.pesan_isian)
+    with st.container(key="kartu_tabel"):
+        lebar_tw = [2.2] + [1.5] * len(KOLOM_TW)
+        kep = st.columns(lebar_tw, vertical_alignment="center")
+        kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Bidang</div>',
+                        unsafe_allow_html=True)
+        for kol, (_, judul) in zip(kep[1:], KOLOM_TW):
+            kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
+        for b in D["bidang"]:
+            st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+            baris = st.columns(lebar_tw, vertical_alignment="center")
+            baris[0].markdown(f'<div class="peg">{html.escape(b["nama"])}</div>', unsafe_allow_html=True)
+            for kol, (kode, _) in zip(baris[1:], KOLOM_TW):
+                ya = kode in isi_tw.get(b["id"], [])
+                kol.button("✓ Sudah" if ya else "Belum",
+                           key=f"cell_{'sudah' if ya else 'belum'}_tw_{b['id']}_{kode}",
+                           on_click=cb_tw_balik, args=(kunci_tw, b["id"], kode))
+        st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+        st.caption("Setiap ketukan langsung tersimpan.")
+
+if halaman == "Rekap triwulan" and D["bidang"]:
+    with st.container(key="kartu_filter"):
+        tahun, _ = pilih_periode("rek", False)
+    hari_ini = date.today()
+    ada = False
+    for tw in (1, 2, 3, 4):
+        if date(tahun, 3 * tw - 2, 1) > hari_ini:
+            continue                       # triwulan belum dimulai
+        ada = True
+        isi_tw = D["triwulan"].get(f"{tahun}-T{tw}", {})
+        kurang = {b["id"]: [j for k, j in KOLOM_TW if k not in isi_tw.get(b["id"], [])] for b in D["bidang"]}
+        n_kurang = sum(len(v) for v in kurang.values())
+        st.markdown(
+            f'<div class="bidang">Triwulan {ROMAWI[tw]} {tahun} · {BULAN_TW[tw]} · '
+            + ("lengkap" if not n_kurang else f"{n_kurang} kolom belum terisi") + '</div>',
+            unsafe_allow_html=True)
+        for b in D["bidang"]:
+            with st.container(border=True):
+                st.markdown(f'<div class="nama">{html.escape(b["nama"])} '
+                            f'<span class="jml">· {len(kurang[b["id"]])} kolom belum</span></div>',
+                            unsafe_allow_html=True)
+                if not kurang[b["id"]]:
+                    st.markdown('<span class="tag">Lengkap</span>', unsafe_allow_html=True)
+                else:
+                    with st.container(horizontal=True, gap="small"):
+                        for (kode, judul) in KOLOM_TW:
+                            if judul in kurang[b["id"]]:
+                                st.button(judul, key=f"chip_tw_{tahun}_{tw}_{b['id']}_{kode}",
+                                          on_click=cb_tw_lompat, args=(tahun, tw),
+                                          help="Buka triwulan ini di Isian triwulan")
+    if not ada:
+        st.info("Belum ada triwulan yang dimulai pada tahun ini.")
 
 # --------------------------------------------------------------- per tanggal
 if halaman == "Per tanggal":
