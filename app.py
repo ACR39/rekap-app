@@ -73,6 +73,8 @@ st.markdown("""
 [class*="st-key-chip_"] button{min-height:0;padding:.12rem .7rem;border:0 !important;border-radius:999px;
   background:#fde8e6 !important;color:#b42318 !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
+.chip-c,.chip-d{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;font-size:.86rem;font-weight:500;white-space:nowrap}
+.chip-c{background:#fff4d6;color:#8a5a00}.chip-d{background:#e0ecff;color:#1d4ed8}
 [data-testid="InputInstructions"]{display:none}
 .thead-s{background:#256b4a;color:#fff;font-weight:650;font-size:.7rem;letter-spacing:.03em;text-transform:uppercase;text-align:center;padding:.5rem .25rem;border-radius:4px;min-height:2.6rem;display:flex;align-items:center;justify-content:center}
 .thead{background:#256b4a;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
@@ -600,14 +602,14 @@ if not cfg_github():
     st.warning("Mode uji coba: data disimpan di file lokal dan bisa hilang saat aplikasi "
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
-UTAMA = ["Per tanggal", "Belum mengisi"]
+UTAMA = ["Per tanggal", "Belum mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan", "Rekap triwulan"]
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Isian triwulan": "checklist", "Rekap triwulan": "rule", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions",
+IKON = {"Isian triwulan": "checklist", "Rekap triwulan": "rule", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -1059,6 +1061,68 @@ if halaman == "Belum mengisi":
                 teks = "\n".join(baris_teks)
                 st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
                 st.code(teks, language=None)
+
+# ------------------------------------------------------------- rekap cuti dan DL
+if halaman == "Rekap cuti dan DL":
+    if not D["pekerja"]:
+        st.info("Belum ada pegawai. Tambahkan dulu di menu Master data > Pegawai.")
+    else:
+        a, b, c = st.columns(3)
+        dari_c = a.date_input("Dari", value=AWAL_WFA, key="dari_cd", format="DD/MM/YYYY")
+        sampai_c = b.date_input("Sampai", value=date(date.today().year, 12, 31), key="sampai_cd",
+                                format="DD/MM/YYYY")
+        jenis_c = c.selectbox("Status", ["Cuti dan DL"] + STATUS_ABSEN, key="jenis_cd")
+        pks_c = pilih_pekerja("f_bidang_cd")
+        if dari_c > sampai_c:
+            st.error("Tanggal awal harus sebelum tanggal akhir.")
+        elif (sampai_c - dari_c).days + 1 > MAKS_HARI:
+            st.error("Rentang maksimal 2 tahun (731 hari).")
+        else:
+            boleh = {p["id"] for p in pks_c}
+            per_c = {}      # id pegawai -> [(tanggal, status)]
+            for t_iso, isi_a in D.get("absen", {}).items():
+                try:
+                    t_d = date.fromisoformat(t_iso)
+                except ValueError:
+                    continue
+                if not (dari_c <= t_d <= sampai_c):
+                    continue
+                for pid_, st_ in isi_a.items():
+                    if pid_ in boleh and (jenis_c == "Cuti dan DL" or st_ == jenis_c):
+                        per_c.setdefault(pid_, []).append((t_d, st_))
+            urut_c = sorted((p for p in pks_c if p["id"] in per_c),
+                            key=lambda p: (-len(per_c[p["id"]]), nama_lengkap(p).lower()))
+            if not urut_c:
+                st.success("Tidak ada catatan cuti atau DL pada rentang ini.")
+            else:
+                n_cuti = sum(s_ == "Cuti" for v in per_c.values() for _, s_ in v)
+                n_dl = sum(s_ == "DL" for v in per_c.values() for _, s_ in v)
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Pegawai", len(urut_c))
+                m2.metric("Hari cuti", n_cuti)
+                m3.metric("Hari DL", n_dl)
+                baris_c = []
+                for judul, anggota in kelompok(urut_c):
+                    if judul:
+                        judul_bidang(judul, len(anggota))
+                        baris_c.append(f"[{judul}]")
+                    for p in anggota:
+                        catatan = sorted(per_c[p["id"]])
+                        nc = sum(s_ == "Cuti" for _, s_ in catatan)
+                        nd = len(catatan) - nc
+                        ringkas = ", ".join(x for x in (f"Cuti {nc}" if nc else "",
+                                                        f"DL {nd}" if nd else "") if x)
+                        with st.container(border=True):
+                            chips = "".join(
+                                f'<span class="{"chip-c" if s_ == "Cuti" else "chip-d"}">'
+                                f'{html.escape(fmt(t_))} · {s_}</span>' for t_, s_ in catatan)
+                            st.markdown(f'<div class="nama">{html.escape(nama_lengkap(p))} '
+                                        f'<span class="jml">· {ringkas}</span></div>{chips}',
+                                        unsafe_allow_html=True)
+                        baris_c.append(f"{nama_lengkap(p)} ({ringkas}): "
+                                       + "; ".join(f"{fmt(t_)} ({s_})" for t_, s_ in catatan))
+                st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
+                st.code("\n".join(baris_c), language=None)
 
 # ----------------------------------------------------------------------- kelola
 def versi() -> int:
