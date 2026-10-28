@@ -130,6 +130,8 @@ KOLOM_TW = [("sasaran", "Sasaran dan Indikator"), ("realisasi", "Realisasi"),
             ("rencana", "Rencana Aksi"), ("pendorong", "Faktor Pendorong"),
             ("penghambat", "Faktor Penghambat"), ("upaya", "Upaya"),
             ("bukti", "Bukti Dukung"), ("ket", "Keterangan")]
+# Keterangan bersifat opsional: tidak dihitung dalam persen, "lengkap", maupun "belum".
+KOLOM_WAJIB = [(k, j) for k, j in KOLOM_TW if k != "ket"]
 ROMAWI = {1: "I", 2: "II", 3: "III", 4: "IV"}
 BULAN_TW = {1: "Januari - Maret", 2: "April - Juni", 3: "Juli - September", 4: "Oktober - Desember"}
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
@@ -334,12 +336,9 @@ def absen_status(tgl: str, pid: str):
 
 
 def tw_isi(kunci_tw: str, pid: str) -> set:
-    """Kolom triwulan yang sudah terisi untuk satu pegawai. Keterangan dihitung kalau ada teksnya."""
-    kode = {k for k, _ in KOLOM_TW if k != "ket"}
-    sudah = set(D["triwulan"].get(kunci_tw, {}).get(pid, [])) & kode
-    if D.get("triwulan_ket", {}).get(kunci_tw, {}).get(pid, "").strip():
-        sudah.add("ket")
-    return sudah
+    """Kolom wajib triwulan yang sudah terisi untuk satu pegawai. Keterangan opsional, tidak dihitung."""
+    kode = {k for k, _ in KOLOM_WAJIB}
+    return set(D["triwulan"].get(kunci_tw, {}).get(pid, [])) & kode
 
 
 TANPA = "Tanpa bidang"
@@ -604,12 +603,12 @@ if not cfg_github():
 
 UTAMA = ["Per tanggal", "Belum mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
-TRIWULAN = ["Isian triwulan", "Rekap triwulan"]
+TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Isian triwulan": "checklist", "Rekap triwulan": "rule", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Rekap cuti dan DL": "beach_access",
+IKON = {"Isian triwulan": "checklist", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -757,7 +756,7 @@ if halaman == "Beranda":
         st.markdown('<div class="bidang">Keterisian triwulan</div>', unsafe_allow_html=True)
         with st.container(key="kartu_filter_tw"):
             t_tahun, t_tw = pilih_periode("ber", True)
-        kode_tw = [k for k, _ in KOLOM_TW]
+        kode_tw = [k for k, _ in KOLOM_WAJIB]
         n_kol = len(kode_tw)
 
         def isi_pegawai(tahun_, tw_, pid):
@@ -781,7 +780,7 @@ if halaman == "Beranda":
             with u1.container(key="kartu_g5"):
                 st.markdown(f"**Keterisian per kolom, Triwulan {ROMAWI[t_tw]} (%)**")
                 dkol = pd.DataFrame({
-                    "Kolom": [j for _, j in KOLOM_TW],
+                    "Kolom": [j for _, j in KOLOM_WAJIB],
                     "Keterisian (%)": [pers(sum(k in isi_pegawai(t_tahun, t_tw, p["id"]) for p in pks_b),
                                             len(pks_b)) for k in kode_tw]})
                 grafik_persen(dkol, "Kolom", horizontal=True, tinggi=300)
@@ -803,7 +802,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
         pks_tw = pilih_pekerja("f_bidang_tw", per_nama=True)
     kunci_tw = f"{tahun}-T{tw}"
     isi_tw = D["triwulan"].get(kunci_tw, {})
-    total = len(pks_tw) * len(KOLOM_TW)
+    total = len(pks_tw) * len(KOLOM_WAJIB)
     sudah = sum(len(tw_isi(kunci_tw, p["id"])) for p in pks_tw)
     st.markdown(
         '<div class="statcard"><div class="sc-kiri"><span class="tag">Triwulan</span>'
@@ -822,13 +821,15 @@ if halaman == "Isian triwulan" and D["pekerja"]:
         kep = st.columns(lebar_tw, vertical_alignment="center")
         kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Pegawai</div>',
                         unsafe_allow_html=True)
-        for kol, (_, judul) in zip(kep[1:], KOLOM_TW):
+        for kol, (kd, judul) in zip(kep[1:], KOLOM_TW):
+            if kd == "ket":
+                judul += " (opsional)"
             kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
         for judul_b, anggota in kelompok(pks_tw):
             if judul_b:
                 judul_bidang(judul_b, len(anggota))
             anggota = sorted(anggota, key=lambda p: (
-                -sum(k not in tw_isi(kunci_tw, p["id"]) for k, _ in KOLOM_TW), nama_lengkap(p).lower()))
+                -sum(k not in tw_isi(kunci_tw, p["id"]) for k, _ in KOLOM_WAJIB), nama_lengkap(p).lower()))
             for p in anggota:
                 st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
                 baris = st.columns(lebar_tw, vertical_alignment="center")
@@ -842,7 +843,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
                         kw = f"ket_{kunci_tw}_{p['id']}"
                         kol.text_input("Keterangan", key=kw, label_visibility="collapsed",
                                        value=D["triwulan_ket"].get(kunci_tw, {}).get(p["id"], ""),
-                                       placeholder="Ketik keterangan...", on_change=cb_tw_ket,
+                                       placeholder="Opsional, boleh dikosongkan...", on_change=cb_tw_ket,
                                        args=(kunci_tw, p["id"], kw))
                         continue
                     ya = kode in isi_tw.get(p["id"], [])
@@ -850,7 +851,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
                                key=f"cell_{'sudah' if ya else 'belum'}_tw_{p['id']}_{kode}",
                                on_click=cb_tw_balik, args=(kunci_tw, p["id"], kode))
         st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-        st.caption("Setiap ketukan langsung tersimpan. Keterangan diketik lalu tekan Enter.")
+        st.caption("Setiap ketukan langsung tersimpan. Keterangan bersifat opsional (tidak dihitung): diketik lalu tekan Enter.")
 
 if halaman == "Rekap triwulan" and D["pekerja"]:
     with st.container(key="kartu_filter"):
@@ -862,7 +863,7 @@ if halaman == "Rekap triwulan" and D["pekerja"]:
         if date(tahun, 3 * tw - 2, 1) > hari_ini:
             continue                       # triwulan belum dimulai
         ada = True
-        kurang = {p["id"]: [j for k, j in KOLOM_TW if k not in tw_isi(f"{tahun}-T{tw}", p["id"])]
+        kurang = {p["id"]: [j for k, j in KOLOM_WAJIB if k not in tw_isi(f"{tahun}-T{tw}", p["id"])]
                   for p in pks_r}
         belum_p = [p for p in pks_r if kurang[p["id"]]]
         n_kurang = sum(len(v) for v in kurang.values())
