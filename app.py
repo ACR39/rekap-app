@@ -144,7 +144,8 @@ def data_kosong() -> dict:
         "kategori": [{"id": "k1", "nama": "Laporan harian"}],
         "libur": {},   # {"2026-10-23": "Keterangan"}
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
-        "triwulan": {},  # {"2026-T1": {"<id bidang>": ["realisasi", "bukti", ...]}}
+        "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
+        "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
     }
 
 
@@ -289,6 +290,15 @@ def terisi(tgl: str, kid: str, pid: str) -> bool:
     return pid in D["isian"].get(tgl, {}).get(kid, [])
 
 
+def tw_isi(kunci_tw: str, pid: str) -> set:
+    """Kolom triwulan yang sudah terisi untuk satu pegawai. Keterangan dihitung kalau ada teksnya."""
+    kode = {k for k, _ in KOLOM_TW if k != "ket"}
+    sudah = set(D["triwulan"].get(kunci_tw, {}).get(pid, [])) & kode
+    if D.get("triwulan_ket", {}).get(kunci_tw, {}).get(pid, "").strip():
+        sudah.add("ket")
+    return sudah
+
+
 TANPA = "Tanpa bidang"
 
 
@@ -393,6 +403,36 @@ def cb_tw_balik(kunci_tw: str, bid: str, kol: str):
             tw.pop(kunci_tw, None)
         else:
             tw[kunci_tw] = lama
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+
+
+def cb_tw_ket(kunci_tw: str, pid: str, kunci_widget: str):
+    """Simpan teks keterangan triwulan (diketik manual)."""
+    data = st.session_state.data
+    kamus = data.setdefault("triwulan_ket", {})
+    lama = copy.deepcopy(kamus.get(kunci_tw))
+    isi = dict(lama or {})
+    teks = " ".join(str(st.session_state.get(kunci_widget, "")).split())
+    if teks:
+        isi[pid] = teks
+    else:
+        isi.pop(pid, None)
+    if isi:
+        kamus[kunci_tw] = isi
+    else:
+        kamus.pop(kunci_tw, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ketik ulang.")
+    except Exception as e:
+        if lama is None:
+            kamus.pop(kunci_tw, None)
+        else:
+            kamus[kunci_tw] = lama
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
@@ -636,7 +676,7 @@ if halaman == "Beranda":
         n_kol = len(kode_tw)
 
         def isi_pegawai(tahun_, tw_, pid):
-            return set(D["triwulan"].get(f"{tahun_}-T{tw_}", {}).get(pid, [])) & set(kode_tw)
+            return tw_isi(f"{tahun_}-T{tw_}", pid)
 
         sudah_t = sum(len(isi_pegawai(t_tahun, t_tw, p["id"])) for p in pks_b)
         total_t = len(pks_b) * n_kol
@@ -679,9 +719,8 @@ if halaman == "Isian triwulan" and D["pekerja"]:
         pks_tw = pilih_pekerja("f_bidang_tw", per_nama=True)
     kunci_tw = f"{tahun}-T{tw}"
     isi_tw = D["triwulan"].get(kunci_tw, {})
-    kode_ada = {k for k, _ in KOLOM_TW}
     total = len(pks_tw) * len(KOLOM_TW)
-    sudah = sum(len(kode_ada & set(isi_tw.get(p["id"], []))) for p in pks_tw)
+    sudah = sum(len(tw_isi(kunci_tw, p["id"])) for p in pks_tw)
     st.markdown(
         '<div class="statcard"><div class="sc-kiri"><span class="tag">Triwulan</span>'
         f'<div class="sc-judul">Triwulan {ROMAWI[tw]} {tahun}</div>'
@@ -695,7 +734,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
     if st.session_state.get("pesan_isian"):
         st.error(st.session_state.pesan_isian)
     with st.container(key="kartu_tabel"):
-        lebar_tw = [2.6] + [1.5] * len(KOLOM_TW)
+        lebar_tw = [2.6] + [1.5] * (len(KOLOM_TW) - 1) + [3.2]
         kep = st.columns(lebar_tw, vertical_alignment="center")
         kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Pegawai</div>',
                         unsafe_allow_html=True)
@@ -705,7 +744,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
             if judul_b:
                 judul_bidang(judul_b, len(anggota))
             anggota = sorted(anggota, key=lambda p: (
-                -sum(k not in isi_tw.get(p["id"], []) for k, _ in KOLOM_TW), nama_lengkap(p).lower()))
+                -sum(k not in tw_isi(kunci_tw, p["id"]) for k, _ in KOLOM_TW), nama_lengkap(p).lower()))
             for p in anggota:
                 st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
                 baris = st.columns(lebar_tw, vertical_alignment="center")
@@ -715,12 +754,19 @@ if halaman == "Isian triwulan" and D["pekerja"]:
                     + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
                     unsafe_allow_html=True)
                 for kol, (kode, _) in zip(baris[1:], KOLOM_TW):
+                    if kode == "ket":
+                        kw = f"ket_{kunci_tw}_{p['id']}"
+                        kol.text_input("Keterangan", key=kw, label_visibility="collapsed",
+                                       value=D["triwulan_ket"].get(kunci_tw, {}).get(p["id"], ""),
+                                       placeholder="Ketik keterangan...", on_change=cb_tw_ket,
+                                       args=(kunci_tw, p["id"], kw))
+                        continue
                     ya = kode in isi_tw.get(p["id"], [])
                     kol.button("✓ Sudah" if ya else "Belum",
                                key=f"cell_{'sudah' if ya else 'belum'}_tw_{p['id']}_{kode}",
                                on_click=cb_tw_balik, args=(kunci_tw, p["id"], kode))
         st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-        st.caption("Setiap ketukan langsung tersimpan.")
+        st.caption("Setiap ketukan langsung tersimpan. Keterangan diketik lalu tekan Enter.")
 
 if halaman == "Rekap triwulan" and D["pekerja"]:
     with st.container(key="kartu_filter"):
@@ -732,8 +778,8 @@ if halaman == "Rekap triwulan" and D["pekerja"]:
         if date(tahun, 3 * tw - 2, 1) > hari_ini:
             continue                       # triwulan belum dimulai
         ada = True
-        isi_tw = D["triwulan"].get(f"{tahun}-T{tw}", {})
-        kurang = {p["id"]: [j for k, j in KOLOM_TW if k not in isi_tw.get(p["id"], [])] for p in pks_r}
+        kurang = {p["id"]: [j for k, j in KOLOM_TW if k not in tw_isi(f"{tahun}-T{tw}", p["id"])]
+                  for p in pks_r}
         belum_p = [p for p in pks_r if kurang[p["id"]]]
         n_kurang = sum(len(v) for v in kurang.values())
         st.markdown(
