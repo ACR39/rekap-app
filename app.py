@@ -46,7 +46,7 @@ st.markdown("""
 [class*="st-key-nav_"] button > div,[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
 [class*="st-key-nav_"] button p{text-align:left !important;justify-content:flex-start !important}
 [class*="st-key-nav_muat"] button{border:1px solid rgba(255,255,255,.12) !important;justify-content:center !important}
-.st-key-kartu_filter,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
+.st-key-kartu_filter,.st-key-kartu_filter_tw,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
 .statcard{display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e3e7ee;border-radius:16px;
@@ -531,6 +531,22 @@ with st.sidebar:
 st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else "AKTIVITAS WFA"))}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
+def pilih_periode(sufiks: str, dengan_tw: bool):
+    """Pilih tahun (dan triwulan). Nilai terakhir diingat lintas halaman."""
+    tahun_ini = date.today().year
+    tahun_opsi = list(range(min(2026, st.session_state.tw_tahun), max(tahun_ini, st.session_state.tw_tahun) + 2))
+    k = st.columns(2 if dengan_tw else 1)
+    tahun = k[0].selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(st.session_state.tw_tahun),
+                           key=f"w_tahun_{sufiks}")
+    st.session_state.tw_tahun = tahun
+    if dengan_tw:
+        tw = k[1].selectbox("Triwulan", [1, 2, 3, 4], index=st.session_state.tw_tw - 1,
+                            key=f"w_tw_{sufiks}",
+                            format_func=lambda i: f"Triwulan {ROMAWI[i]} ({BULAN_TW[i]})")
+        st.session_state.tw_tw = tw
+    return st.session_state.tw_tahun, st.session_state.tw_tw
+
+
 # -------------------------------------------------------------------- beranda
 if halaman == "Beranda":
     if not D["pekerja"] or not D["kategori"]:
@@ -618,23 +634,48 @@ if halaman == "Beranda":
                     else:
                         st.success("Semua sudah mengisi.")
 
+        # ---- keterisian triwulan
+        st.markdown('<div class="bidang">Keterisian triwulan</div>', unsafe_allow_html=True)
+        with st.container(key="kartu_filter_tw"):
+            t_tahun, t_tw = pilih_periode("ber", True)
+        kode_tw = [k for k, _ in KOLOM_TW]
+        n_kol = len(kode_tw)
+
+        def isi_pegawai(tahun_, tw_, pid):
+            return set(D["triwulan"].get(f"{tahun_}-T{tw_}", {}).get(pid, [])) & set(kode_tw)
+
+        sudah_t = sum(len(isi_pegawai(t_tahun, t_tw, p["id"])) for p in pks_b)
+        total_t = len(pks_b) * n_kol
+        lengkap_t = sum(len(isi_pegawai(t_tahun, t_tw, p["id"])) == n_kol for p in pks_b)
+        pers = lambda a_, b_: round(100 * a_ / b_, 1) if b_ else 0.0
+        st.markdown(
+            f'<div class="statcard"><div class="sc-kiri"><span class="tag">Triwulan {ROMAWI[t_tw]} {t_tahun}</span>'
+            f'<div class="sc-judul">{pers(sudah_t, total_t)}% terisi</div>'
+            f'<div class="sc-ket">{BULAN_TW[t_tw]}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Pegawai</div><div class="sc-val">{len(pks_b)}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Lengkap</div><div class="sc-val g">{lengkap_t}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Belum lengkap</div><div class="sc-val m">{len(pks_b) - lengkap_t}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Isian belum</div><div class="sc-val">{total_t - sudah_t}</div></div>'
+            '</div>', unsafe_allow_html=True)
+        if pks_b:
+            u1, u2 = st.columns(2)
+            with u1.container(key="kartu_g5"):
+                st.markdown(f"**Keterisian per kolom, Triwulan {ROMAWI[t_tw]} (%)**")
+                dkol = pd.DataFrame({
+                    "Kolom": [j for _, j in KOLOM_TW],
+                    "Keterisian (%)": [pers(sum(k in isi_pegawai(t_tahun, t_tw, p["id"]) for p in pks_b),
+                                            len(pks_b)) for k in kode_tw]})
+                st.bar_chart(dkol, x="Kolom", y="Keterisian (%)", horizontal=True, sort=False,
+                             color="#2b7a57", height=300)
+            with u2.container(key="kartu_g6"):
+                st.markdown(f"**Keterisian per triwulan, {t_tahun} (%)**")
+                dtw = pd.DataFrame({
+                    "Triwulan": [f"Triwulan {ROMAWI[i]}" for i in (1, 2, 3, 4)],
+                    "Keterisian (%)": [pers(sum(len(isi_pegawai(t_tahun, i, p["id"])) for p in pks_b),
+                                            len(pks_b) * n_kol) for i in (1, 2, 3, 4)]})
+                st.bar_chart(dtw, x="Triwulan", y="Keterisian (%)", sort=False, color="#2b7a57", height=300)
+
 # ------------------------------------------------------------ keterisian triwulan
-def pilih_periode(sufiks: str, dengan_tw: bool):
-    """Pilih tahun (dan triwulan). Nilai terakhir diingat lintas halaman."""
-    tahun_ini = date.today().year
-    tahun_opsi = list(range(min(2026, st.session_state.tw_tahun), max(tahun_ini, st.session_state.tw_tahun) + 2))
-    k = st.columns(2 if dengan_tw else 1)
-    tahun = k[0].selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(st.session_state.tw_tahun),
-                           key=f"w_tahun_{sufiks}")
-    st.session_state.tw_tahun = tahun
-    if dengan_tw:
-        tw = k[1].selectbox("Triwulan", [1, 2, 3, 4], index=st.session_state.tw_tw - 1,
-                            key=f"w_tw_{sufiks}",
-                            format_func=lambda i: f"Triwulan {ROMAWI[i]} ({BULAN_TW[i]})")
-        st.session_state.tw_tw = tw
-    return st.session_state.tw_tahun, st.session_state.tw_tw
-
-
 if halaman in TRIWULAN and not D["pekerja"]:
     st.info("Belum ada pegawai. Tambahkan dulu di menu Master data > Pegawai.")
 
