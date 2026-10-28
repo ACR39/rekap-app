@@ -366,7 +366,7 @@ def atur(kunci: str, nilai):
 
 
 def cb_tw_balik(kunci_tw: str, bid: str, kol: str):
-    """Centang/lepas satu kolom triwulan lalu langsung simpan."""
+    """Centang/lepas satu kolom triwulan untuk satu pegawai lalu langsung simpan."""
     data = st.session_state.data
     tw = data.setdefault("triwulan", {})
     lama = copy.deepcopy(tw.get(kunci_tw))
@@ -396,9 +396,14 @@ def cb_tw_balik(kunci_tw: str, bid: str, kol: str):
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
-def cb_tw_lompat(tahun: int, tw: int):
+def cb_tw_lompat(tahun: int, tw: int, pid: str):
+    p = next((x for x in st.session_state.data["pekerja"] if x["id"] == pid), None)
     st.session_state.tw_tahun = tahun
     st.session_state.tw_tw = tw
+    if p is not None:
+        if st.session_state.data["bidang"]:
+            st.session_state.f_bidang_tw = nama_bidang(p)
+        st.session_state.f_bidang_tw_nama = [pid]
     st.session_state.halaman = "Isian triwulan"
 
 
@@ -630,50 +635,62 @@ def pilih_periode(sufiks: str, dengan_tw: bool):
     return st.session_state.tw_tahun, st.session_state.tw_tw
 
 
-if halaman in TRIWULAN and not D["bidang"]:
-    st.info("Belum ada bidang. Tambahkan dulu di menu Master data > Bidang.")
+if halaman in TRIWULAN and not D["pekerja"]:
+    st.info("Belum ada pegawai. Tambahkan dulu di menu Master data > Pegawai.")
 
-if halaman == "Isian triwulan" and D["bidang"]:
+if halaman == "Isian triwulan" and D["pekerja"]:
     with st.container(key="kartu_filter"):
         tahun, tw = pilih_periode("isi", True)
+        pks_tw = pilih_pekerja("f_bidang_tw", per_nama=True)
     kunci_tw = f"{tahun}-T{tw}"
     isi_tw = D["triwulan"].get(kunci_tw, {})
-    total = len(D["bidang"]) * len(KOLOM_TW)
-    sudah = sum(len([c for c in isi_tw.get(b["id"], []) if c in dict(KOLOM_TW)]) for b in D["bidang"])
+    kode_ada = {k for k, _ in KOLOM_TW}
+    total = len(pks_tw) * len(KOLOM_TW)
+    sudah = sum(len(kode_ada & set(isi_tw.get(p["id"], []))) for p in pks_tw)
     st.markdown(
         '<div class="statcard"><div class="sc-kiri"><span class="tag">Triwulan</span>'
         f'<div class="sc-judul">Triwulan {ROMAWI[tw]} {tahun}</div>'
-        f'<div class="sc-ket">{BULAN_TW[tw]} · {sudah} dari {total} kolom sudah terisi'
-        + (" ✓" if sudah == total else "") + '</div></div>'
+        f'<div class="sc-ket">{BULAN_TW[tw]} · {sudah} dari {total} isian sudah terisi'
+        + (" ✓" if total and sudah == total else "") + '</div></div>'
         f'<div class="sc-stat"><div class="sc-lab">Sudah</div><div class="sc-val g">{sudah}</div></div>'
         f'<div class="sc-stat"><div class="sc-lab">Belum</div><div class="sc-val m">{total - sudah}</div></div>'
-        f'<div class="sc-stat"><div class="sc-lab">Bidang</div><div class="sc-val">{len(D["bidang"])}</div></div>'
+        f'<div class="sc-stat"><div class="sc-lab">Pegawai</div><div class="sc-val">{len(pks_tw)}</div></div>'
         '</div>', unsafe_allow_html=True)
     st.progress(sudah / total if total else 0.0)
     if st.session_state.get("pesan_isian"):
         st.error(st.session_state.pesan_isian)
     with st.container(key="kartu_tabel"):
-        lebar_tw = [2.2] + [1.5] * len(KOLOM_TW)
+        lebar_tw = [2.6] + [1.5] * len(KOLOM_TW)
         kep = st.columns(lebar_tw, vertical_alignment="center")
-        kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Bidang</div>',
+        kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Pegawai</div>',
                         unsafe_allow_html=True)
         for kol, (_, judul) in zip(kep[1:], KOLOM_TW):
             kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
-        for b in D["bidang"]:
-            st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-            baris = st.columns(lebar_tw, vertical_alignment="center")
-            baris[0].markdown(f'<div class="peg">{html.escape(b["nama"])}</div>', unsafe_allow_html=True)
-            for kol, (kode, _) in zip(baris[1:], KOLOM_TW):
-                ya = kode in isi_tw.get(b["id"], [])
-                kol.button("✓ Sudah" if ya else "Belum",
-                           key=f"cell_{'sudah' if ya else 'belum'}_tw_{b['id']}_{kode}",
-                           on_click=cb_tw_balik, args=(kunci_tw, b["id"], kode))
+        for judul_b, anggota in kelompok(pks_tw):
+            if judul_b:
+                judul_bidang(judul_b, len(anggota))
+            anggota = sorted(anggota, key=lambda p: (
+                -sum(k not in isi_tw.get(p["id"], []) for k, _ in KOLOM_TW), nama_lengkap(p).lower()))
+            for p in anggota:
+                st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+                baris = st.columns(lebar_tw, vertical_alignment="center")
+                nip = p.get("nip", "")
+                baris[0].markdown(
+                    f'<div class="peg">{html.escape(nama_lengkap(p))}</div>'
+                    + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
+                    unsafe_allow_html=True)
+                for kol, (kode, _) in zip(baris[1:], KOLOM_TW):
+                    ya = kode in isi_tw.get(p["id"], [])
+                    kol.button("✓ Sudah" if ya else "Belum",
+                               key=f"cell_{'sudah' if ya else 'belum'}_tw_{p['id']}_{kode}",
+                               on_click=cb_tw_balik, args=(kunci_tw, p["id"], kode))
         st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
         st.caption("Setiap ketukan langsung tersimpan.")
 
-if halaman == "Rekap triwulan" and D["bidang"]:
+if halaman == "Rekap triwulan" and D["pekerja"]:
     with st.container(key="kartu_filter"):
         tahun, _ = pilih_periode("rek", False)
+        pks_r = pilih_pekerja("f_bidang_twr")
     hari_ini = date.today()
     ada = False
     for tw in (1, 2, 3, 4):
@@ -681,26 +698,26 @@ if halaman == "Rekap triwulan" and D["bidang"]:
             continue                       # triwulan belum dimulai
         ada = True
         isi_tw = D["triwulan"].get(f"{tahun}-T{tw}", {})
-        kurang = {b["id"]: [j for k, j in KOLOM_TW if k not in isi_tw.get(b["id"], [])] for b in D["bidang"]}
+        kurang = {p["id"]: [j for k, j in KOLOM_TW if k not in isi_tw.get(p["id"], [])] for p in pks_r}
+        belum_p = [p for p in pks_r if kurang[p["id"]]]
         n_kurang = sum(len(v) for v in kurang.values())
         st.markdown(
             f'<div class="bidang">Triwulan {ROMAWI[tw]} {tahun} · {BULAN_TW[tw]} · '
-            + ("lengkap" if not n_kurang else f"{n_kurang} kolom belum terisi") + '</div>',
+            + ("semua lengkap" if not belum_p else
+               f"{len(belum_p)} pegawai belum lengkap ({n_kurang} isian)") + '</div>',
             unsafe_allow_html=True)
-        for b in D["bidang"]:
-            with st.container(border=True):
-                st.markdown(f'<div class="nama">{html.escape(b["nama"])} '
-                            f'<span class="jml">· {len(kurang[b["id"]])} kolom belum</span></div>',
-                            unsafe_allow_html=True)
-                if not kurang[b["id"]]:
-                    st.markdown('<span class="tag">Lengkap</span>', unsafe_allow_html=True)
-                else:
-                    with st.container(horizontal=True, gap="small"):
-                        for (kode, judul) in KOLOM_TW:
-                            if judul in kurang[b["id"]]:
-                                st.button(judul, key=f"chip_tw_{tahun}_{tw}_{b['id']}_{kode}",
-                                          on_click=cb_tw_lompat, args=(tahun, tw),
-                                          help="Buka triwulan ini di Isian triwulan")
+        for judul_b, anggota in kelompok(belum_p):
+            if judul_b:
+                st.caption(judul_b)
+            for p in sorted(anggota, key=lambda x: (-len(kurang[x["id"]]), nama_lengkap(x).lower())):
+                with st.container(border=True):
+                    k1, k2 = st.columns([6, 1], vertical_alignment="center")
+                    chips = "".join(f'<span class="chip">{html.escape(j)}</span>' for j in kurang[p["id"]])
+                    k1.markdown(f'<div class="nama">{html.escape(nama_lengkap(p))} '
+                                f'<span class="jml">· {len(kurang[p["id"]])} belum</span></div>{chips}',
+                                unsafe_allow_html=True)
+                    k2.button("Buka", key=f"buka_tw_{tahun}_{tw}_{p['id']}", on_click=cb_tw_lompat,
+                              args=(tahun, tw, p["id"]), help="Buka di Isian triwulan")
     if not ada:
         st.info("Belum ada triwulan yang dimulai pada tahun ini.")
 
