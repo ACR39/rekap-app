@@ -177,6 +177,7 @@ def data_kosong() -> dict:
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
+        "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
     }
 
 
@@ -250,7 +251,7 @@ def simpan(data: dict):
 
 def muat_ke_sesi():
     st.session_state.data, st.session_state.sha = muat()
-    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_", "ket_"))]:
+    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_", "ket_", "abs_"))]:
         del st.session_state[k]
 
 
@@ -319,6 +320,15 @@ def lompat(d: date, arah: int) -> date:
 
 def terisi(tgl: str, kid: str, pid: str) -> bool:
     return pid in D["isian"].get(tgl, {}).get(kid, [])
+
+
+STATUS_ABSEN = ["Cuti", "DL"]
+STATUS_OPSI = ["Hadir"] + STATUS_ABSEN   # "Hadir" = tidak ada pengecualian
+
+
+def absen_status(tgl: str, pid: str):
+    """Cuti atau DL pada tanggal itu; None kalau tidak ada. Yang ada statusnya tidak dihitung WFA."""
+    return D.get("absen", {}).get(tgl, {}).get(pid)
 
 
 def tw_isi(kunci_tw: str, pid: str) -> set:
@@ -531,6 +541,38 @@ def _simpan_isian(tgl: str, kid: str, pids: list, nilai: bool):
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
+def cb_absen(tgl: str, pid: str, kunci_widget: str):
+    """Simpan status Cuti/DL satu pegawai pada satu tanggal."""
+    data = st.session_state.data
+    kamus = data.setdefault("absen", {})
+    lama = copy.deepcopy(kamus.get(tgl))
+    sebelum = (lama or {}).get(pid, "Hadir")
+    isi = dict(lama or {})
+    baru = st.session_state.get(kunci_widget, "Hadir")
+    if baru in STATUS_ABSEN:
+        isi[pid] = baru
+    else:
+        isi.pop(pid, None)
+    if isi:
+        kamus[tgl] = isi
+    else:
+        kamus.pop(tgl, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ulangi.")
+    except Exception as e:
+        if lama is None:
+            kamus.pop(tgl, None)
+        else:
+            kamus[tgl] = lama
+        st.session_state[kunci_widget] = sebelum
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+
+
 def cb_balik(tgl: str, kid: str, pid: str):
     _simpan_isian(tgl, kid, [pid], not _sudah(st.session_state.data, tgl, kid, pid))
 
@@ -658,6 +700,8 @@ if halaman == "Beranda":
                     sudah_h = 0
                     for k in kats_b:
                         for p in pks_b:
+                            if absen_status(iso, p["id"]):
+                                continue          # cuti / DL tidak dihitung
                             ya = terisi(iso, k["id"], p["id"])
                             sudah_h += ya
                             for kamus, kunci in ((per_bidang, nama_bidang(p)), (per_kat, k["nama"])):
@@ -665,7 +709,8 @@ if halaman == "Beranda":
                                 kamus[kunci] = (a_ + ya, b_ + 1)
                             if not ya:
                                 per_orang[p["id"]] = per_orang.get(p["id"], 0) + 1
-                    per_hari.append((t, sudah_h, len(kats_b) * len(pks_b)))
+                    n_hitung = sum(not absen_status(iso, p["id"]) for p in pks_b)
+                    per_hari.append((t, sudah_h, len(kats_b) * n_hitung))
                 tot_sudah = sum(x[1] for x in per_hari)
                 tot_semua = sum(x[2] for x in per_hari)
                 persen = lambda a_, b_: round(100 * a_ / b_, 1) if b_ else 0.0
@@ -865,8 +910,10 @@ if halaman == "Per tanggal":
             pks = pilih_pekerja("f_bidang_tgl", per_nama=True, wfa=True)
         status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
-        belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
-        total = len(kats) * len(pks)
+        pks_hitung = [p for p in pks if not absen_status(tgl, p["id"])]
+        n_absen = len(pks) - len(pks_hitung)
+        belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks_hitung)
+        total = len(kats) * len(pks_hitung)
         sudah = total - belum
         st.markdown(
             '<div class="statcard"><div class="sc-kiri">'
@@ -882,7 +929,9 @@ if halaman == "Per tanggal":
             '<div class="sc-stat"><div class="sc-lab">Total</div>'
             f'<div class="sc-val">{total}</div></div>'
             '<div class="sc-stat"><div class="sc-lab">Pekerja</div>'
-            f'<div class="sc-val">{len(pks)}</div></div></div>',
+            f'<div class="sc-val">{len(pks_hitung)}</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Cuti/DL</div>'
+            f'<div class="sc-val">{n_absen}</div></div></div>',
             unsafe_allow_html=True)
         st.progress(sudah / total if total else 0.0)
         if st.session_state.get("pesan_isian"):
@@ -890,21 +939,23 @@ if halaman == "Per tanggal":
 
         with st.container(key="kartu_tabel"):
             ada_jabatan = any(p.get("jabatan") for p in pks)
-            lebar = [4] + ([3] if ada_jabatan else []) + [2.2] * len(kats)
-            geser = 2 if ada_jabatan else 1
+            lebar = [4] + ([3] if ada_jabatan else []) + [1.7] + [2.2] * len(kats)
+            geser = 3 if ada_jabatan else 2
             kepala = st.columns(lebar)
             kepala[0].markdown("**Pegawai**")
             if ada_jabatan:
                 kepala[1].markdown("**Jabatan**")
+            kepala[geser - 1].markdown("**Status**")
             for i, k in enumerate(kats):
                 kepala[geser + i].markdown(f"**{k['nama']}**")
                 kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
-                                         args=(tgl, k["id"], [p["id"] for p in pks]))
+                                         args=(tgl, k["id"], [p["id"] for p in pks_hitung]))
             for judul, anggota in kelompok(pks):
                 if judul:
                     judul_bidang(judul, len(anggota))
                 # yang paling banyak belum terisi di atas; sama banyak: urut nama
                 anggota = sorted(anggota, key=lambda p: (
+                    bool(absen_status(tgl, p["id"])),
                     -sum(not status(k["id"], p["id"]) for k in kats),
                     nama_lengkap(p).lower()))
                 for p in anggota:
@@ -917,7 +968,18 @@ if halaman == "Per tanggal":
                         unsafe_allow_html=True)
                     if ada_jabatan:
                         baris[1].write(p.get("jabatan", ""))
+                    sa = absen_status(tgl, p["id"]) or "Hadir"
+                    kw_abs = f"abs_{tgl}_{p['id']}"
+                    baris[geser - 1].selectbox(
+                        "Status", STATUS_OPSI, index=STATUS_OPSI.index(sa), key=kw_abs,
+                        label_visibility="collapsed", on_change=cb_absen,
+                        args=(tgl, p["id"], kw_abs))
                     for i, k in enumerate(kats):
+                        if sa != "Hadir":
+                            baris[geser + i].markdown(
+                                f'<span class="tag tag-m">{html.escape(sa)}</span>',
+                                unsafe_allow_html=True)
+                            continue
                         ya = status(k["id"], p["id"])
                         baris[geser + i].button(
                             "✓ Sudah" if ya else "Belum",
@@ -937,7 +999,8 @@ if halaman == "Belum mengisi":
         nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
         pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
         pks_lap = pilih_pekerja("f_bidang_lap", wfa=True)
-        st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan dilewati.")
+        st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan, serta pegawai yang "
+                   "Cuti atau DL pada tanggal itu, dilewati.")
 
         if dari > sampai:
             st.error("Tanggal awal harus sebelum tanggal akhir.")
@@ -955,6 +1018,8 @@ if halaman == "Belum mengisi":
                 if d.weekday() == 4 and t not in D["libur"]:
                     for k in kats:
                         for p in pks_lap:
+                            if absen_status(t, p["id"]):
+                                continue          # cuti / DL tidak dihitung
                             if not terisi(t, k["id"], p["id"]):
                                 per.setdefault(p["id"], []).append((d, k["nama"], k["id"]))
                                 tanggal_hitung.add(t)
