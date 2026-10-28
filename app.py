@@ -219,7 +219,7 @@ def simpan(data: dict):
 
 def muat_ke_sesi():
     st.session_state.data, st.session_state.sha = muat()
-    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_"))]:
+    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_", "ket_"))]:
         del st.session_state[k]
 
 
