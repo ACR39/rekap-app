@@ -312,6 +312,11 @@ def aktif(p: dict) -> bool:
     return p.get("aktif", True)
 
 
+def ikut_wfa(p: dict) -> bool:
+    """Pegawai yang tidak ikut WFA (misalnya beda divisi) tidak dihitung di rekap WFA."""
+    return p.get("ikut_wfa", True)
+
+
 def nama_bidang(p: dict) -> str:
     peta = {b["id"]: b["nama"] for b in D["bidang"]}
     return peta.get(p.get("bidang"), TANPA)
@@ -338,10 +343,11 @@ def judul_bidang(nama, jumlah):
                 unsafe_allow_html=True)
 
 
-def pilih_pekerja(kunci: str, per_nama: bool = False):
+def pilih_pekerja(kunci: str, per_nama: bool = False, wfa: bool = False):
     """Pilihan bidang (dan, kalau per_nama, nama) untuk menyaring pekerja.
-    Nama tidak dipilih = semua orang di bidang itu."""
-    semua = [p for p in D["pekerja"] if aktif(p)]
+    Nama tidak dipilih = semua orang di bidang itu.
+    wfa=True: pegawai yang tidak ikut WFA dikeluarkan."""
+    semua = [p for p in D["pekerja"] if aktif(p) and (ikut_wfa(p) or not wfa)]
     hasil = semua
     if D["bidang"]:
         ada_lain = any(nama_bidang(p) == TANPA for p in semua)
@@ -597,7 +603,8 @@ if halaman == "Beranda":
             b_dari = f1.date_input("Dari", value=AWAL_WFA, key="b_dari", format="DD/MM/YYYY")
             b_sampai = f2.date_input("Sampai", value=date.today(), key="b_sampai", format="DD/MM/YYYY")
             with f3:
-                pks_b = pilih_pekerja("f_bidang_ber")
+                pks_b_all = pilih_pekerja("f_bidang_ber")
+        pks_b = [p for p in pks_b_all if ikut_wfa(p)]   # untuk bagian WFA
         if b_dari > b_sampai:
             st.error("Tanggal awal harus sebelum tanggal akhir.")
         elif (b_sampai - b_dari).days + 1 > MAKS_HARI:
@@ -668,7 +675,8 @@ if halaman == "Beranda":
                     else:
                         st.success("Semua sudah mengisi.")
 
-        # ---- keterisian triwulan
+        # ---- keterisian triwulan (semua pegawai, termasuk yang tidak ikut WFA)
+        pks_b = pks_b_all
         st.markdown('<div class="bidang">Keterisian triwulan</div>', unsafe_allow_html=True)
         with st.container(key="kartu_filter_tw"):
             t_tahun, t_tw = pilih_periode("ber", True)
@@ -825,7 +833,7 @@ if halaman == "Per tanggal":
                         + ". Tidak dihitung di tab Belum mengisi.")
 
             kats = D["kategori"]
-            pks = pilih_pekerja("f_bidang_tgl", per_nama=True)
+            pks = pilih_pekerja("f_bidang_tgl", per_nama=True, wfa=True)
         status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
         belum = sum(not status(k["id"], p["id"]) for k in kats for p in pks)
@@ -899,7 +907,7 @@ if halaman == "Belum mengisi":
         sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
         nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
         pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
-        pks_lap = pilih_pekerja("f_bidang_lap")
+        pks_lap = pilih_pekerja("f_bidang_lap", wfa=True)
         st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan dilewati.")
 
         if dari > sampai:
@@ -1039,7 +1047,8 @@ def halaman_pegawai():
                 k[0].write(f"{no}.")
                 k[1].write(p.get("nip", ""))
                 k[2].markdown(f"{html.escape(nama_lengkap(p))}"
-                              + ("" if aktif(p) else " *(nonaktif)*"))
+                              + ("" if aktif(p) else " *(nonaktif)*")
+                              + ("" if ikut_wfa(p) else " *(tidak WFA)*"))
                 k[3].write(p.get("jabatan", ""))
                 k[4].write(nama_bidang(p) if D["bidang"] else "")
                 t1, t2 = k[5].columns(2)
@@ -1080,6 +1089,10 @@ def halaman_pegawai():
                                index=idx([""] + JENIS_JABATAN, p.get("jenis_jabatan", "")))
             jab = h4.text_input("Jabatan pegawai", value=p.get("jabatan", ""),
                                 placeholder="Jabatan pegawai")
+            wfa_v = st.radio("Ikut WFA", ["Ya", "Tidak"], index=0 if ikut_wfa(p) else 1,
+                             horizontal=True,
+                             help="Pilih Tidak untuk pegawai yang tidak bekerja WFA (misalnya beda "
+                                  "divisi). Tidak dihitung di rekap WFA, tetapi tetap di triwulan.")
             bid = ""
             if D["bidang"]:
                 peta = {b["id"]: b["nama"] for b in D["bidang"]}
@@ -1125,6 +1138,10 @@ def halaman_pegawai():
                         baru["aktif"] = False
                     else:
                         baru.pop("aktif", None)
+                    if wfa_v == "Tidak":
+                        baru["ikut_wfa"] = False
+                    else:
+                        baru.pop("ikut_wfa", None)
                     if mode != "baru":
                         D["pekerja"] = [baru if x["id"] == mode else x for x in D["pekerja"]]
                     else:
