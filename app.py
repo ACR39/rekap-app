@@ -73,8 +73,8 @@ st.markdown("""
 [class*="st-key-chip_"] button{min-height:0;padding:.12rem .7rem;border:0 !important;border-radius:999px;
   background:#fde8e6 !important;color:#b42318 !important;font-size:.86rem;font-weight:500}
 [class*="st-key-chip_"] button:hover{filter:brightness(.93)}
-.chip-c,.chip-d{display:inline-block;margin:.15rem .4rem .15rem 0;padding:.12rem .7rem;border-radius:999px;font-size:.86rem;font-weight:500;white-space:nowrap}
-.chip-c{background:#fff4d6;color:#8a5a00}.chip-d{background:#e0ecff;color:#1d4ed8}
+[class*="st-key-chip_cuti_"] button{background:#fff4d6 !important;color:#8a5a00 !important}
+[class*="st-key-chip_dl_"] button{background:#e0ecff !important;color:#1d4ed8 !important}
 [data-testid="InputInstructions"]{display:none}
 .thead-s{background:#256b4a;color:#fff;font-weight:650;font-size:.7rem;letter-spacing:.03em;text-transform:uppercase;text-align:center;padding:.5rem .25rem;border-radius:4px;min-height:2.6rem;display:flex;align-items:center;justify-content:center}
 .thead{background:#256b4a;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
@@ -1113,12 +1113,15 @@ if halaman == "Rekap cuti dan DL":
                         ringkas = ", ".join(x for x in (f"Cuti {nc}" if nc else "",
                                                         f"DL {nd}" if nd else "") if x)
                         with st.container(border=True):
-                            chips = "".join(
-                                f'<span class="{"chip-c" if s_ == "Cuti" else "chip-d"}">'
-                                f'{html.escape(fmt(t_))} · {s_}</span>' for t_, s_ in catatan)
                             st.markdown(f'<div class="nama">{html.escape(nama_lengkap(p))} '
-                                        f'<span class="jml">· {ringkas}</span></div>{chips}',
+                                        f'<span class="jml">· {ringkas}</span></div>',
                                         unsafe_allow_html=True)
+                            with st.container(horizontal=True, gap="small"):
+                                for t_, s_ in catatan:
+                                    st.button(f"{fmt(t_)} · {s_}",
+                                              key=f"chip_{s_.lower()}_{p['id']}_{t_.isoformat()}",
+                                              on_click=cb_lompat, args=(t_.isoformat(), p["id"]),
+                                              help="Buka tanggal ini di Per tanggal")
                         baris_c.append(f"{nama_lengkap(p)} ({ringkas}): "
                                        + "; ".join(f"{fmt(t_)} ({s_})" for t_, s_ in catatan))
                 st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
