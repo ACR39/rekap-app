@@ -133,6 +133,37 @@ BULAN_TW = {1: "Januari - Maret", 2: "April - Juni", 3: "Juli - September", 4: "
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
 
 
+def grafik_persen(df, kategori, nilai="Keterisian (%)", jenis="bar", horizontal=False,
+                  urut=None, tinggi=280):
+    """Grafik persen dengan sumbu tetap 0-100%. urut: None = sesuai data, "-y" = terbesar dulu."""
+    hijau = "#2b7a57"
+    skala = {"domain": [0, 100], "nice": False}
+    sumbu_nilai = {"field": nilai, "type": "quantitative", "scale": skala,
+                   "axis": {"title": nilai, "values": [0, 25, 50, 75, 100]}}
+    if jenis == "line":
+        spec = {"mark": {"type": "line", "point": True, "color": hijau},
+                "encoding": {"x": {"field": kategori, "type": "temporal",
+                                   "axis": {"title": None, "format": "%d/%m/%y"}},
+                             "y": sumbu_nilai,
+                             "tooltip": [{"field": kategori, "type": "temporal", "format": "%d/%m/%Y"},
+                                         {"field": nilai, "type": "quantitative"}]}}
+    else:
+        urut_k = None if urut is None else urut
+        kat = {"field": kategori, "type": "nominal", "sort": urut_k,
+               "axis": {"title": None, "labelLimit": 220}}
+        if horizontal:
+            enc = {"y": kat, "x": sumbu_nilai}
+        else:
+            kat["axis"]["labelAngle"] = 0
+            enc = {"x": kat, "y": sumbu_nilai}
+        enc["tooltip"] = [{"field": kategori, "type": "nominal"},
+                          {"field": nilai, "type": "quantitative"}]
+        spec = {"mark": {"type": "bar", "color": hijau}, "encoding": enc}
+    spec["width"] = "container"
+    spec["height"] = tinggi
+    st.vega_lite_chart(df, spec)
+
+
 def fmt(d: date) -> str:
     return f"{HARI[d.weekday()]}, {d.day} {BULAN[d.month - 1]} {d.year}"
 
@@ -655,14 +686,13 @@ if halaman == "Beranda":
                     tren = pd.DataFrame(
                         {"Tanggal": [pd.Timestamp(x[0]) for x in per_hari],
                          "Keterisian (%)": [persen(x[1], x[2]) for x in per_hari]})
-                    st.line_chart(tren, x="Tanggal", y="Keterisian (%)", color="#2b7a57", height=280)
+                    grafik_persen(tren, "Tanggal", jenis="line", tinggi=280)
                 h1, h2 = st.columns(2)
                 with h1.container(key="kartu_g3"):
                     st.markdown("**Keterisian per bidang (%)**")
                     db = pd.DataFrame({"Bidang": list(per_bidang),
                                        "Keterisian (%)": [persen(*v) for v in per_bidang.values()]})
-                    st.bar_chart(db, x="Bidang", y="Keterisian (%)", horizontal=True,
-                                 sort="-Keterisian (%)", color="#2b7a57", height=280)
+                    grafik_persen(db, "Bidang", horizontal=True, urut="-x", tinggi=280)
                 with h2.container(key="kartu_g4"):
                     st.markdown("**Paling sering belum mengisi**")
                     nama_p = {p["id"]: nama_lengkap(p) for p in pks_b}
@@ -707,15 +737,14 @@ if halaman == "Beranda":
                     "Kolom": [j for _, j in KOLOM_TW],
                     "Keterisian (%)": [pers(sum(k in isi_pegawai(t_tahun, t_tw, p["id"]) for p in pks_b),
                                             len(pks_b)) for k in kode_tw]})
-                st.bar_chart(dkol, x="Kolom", y="Keterisian (%)", horizontal=True, sort=False,
-                             color="#2b7a57", height=300)
+                grafik_persen(dkol, "Kolom", horizontal=True, tinggi=300)
             with u2.container(key="kartu_g6"):
                 st.markdown(f"**Keterisian per triwulan, {t_tahun} (%)**")
                 dtw = pd.DataFrame({
                     "Triwulan": [f"Triwulan {ROMAWI[i]}" for i in (1, 2, 3, 4)],
                     "Keterisian (%)": [pers(sum(len(isi_pegawai(t_tahun, i, p["id"])) for p in pks_b),
                                             len(pks_b) * n_kol) for i in (1, 2, 3, 4)]})
-                st.bar_chart(dtw, x="Triwulan", y="Keterisian (%)", sort=False, color="#2b7a57", height=300)
+                grafik_persen(dtw, "Triwulan", tinggi=300)
 
 # ------------------------------------------------------------ keterisian triwulan
 if halaman in TRIWULAN and not D["pekerja"]:
