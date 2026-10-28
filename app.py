@@ -27,20 +27,25 @@ st.markdown("""
 [data-testid="stSidebar"]{background:#0b1220}
 [data-testid="stSidebar"] *{color:#e5e7eb}
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] *{color:#94a3b8}
-.brand{padding:.4rem .2rem 1rem;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:.9rem}
-.brand .b1{font-weight:700;font-size:1.05rem;color:#fff}
-.brand .b2{font-size:.78rem;color:#94a3b8;margin-top:.1rem}
+.brand{display:flex;align-items:center;gap:.7rem;padding:.3rem .2rem 1.1rem;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:.4rem}
+.brand .b1{font-weight:700;font-size:1.05rem;color:#fff;line-height:1.2}
+.brand .b2{font-size:.76rem;color:#94a3b8;margin-top:.1rem}
 .sp{height:1.2rem}
-.grup{font-size:.68rem;font-weight:700;letter-spacing:.1em;color:#64748b;margin:.9rem 0 .3rem .2rem}
-[data-testid="stSidebar"] [data-testid="stExpander"]{background:#0f1829;border:1px solid rgba(255,255,255,.08);box-shadow:none}
-[data-testid="stSidebar"] [data-testid="stExpander"] summary{font-weight:600}
-[class*="st-key-nav_"] button{justify-content:flex-start;border:0 !important;border-radius:12px;min-height:2.7rem;
-  background:#131c2e !important;color:#e5e7eb !important;font-weight:600}
-[class*="st-key-nav_"] button[kind="primary"]{background:#2b7a57 !important;color:#fff !important}
-[class*="st-key-nav_"] button{justify-content:flex-start !important;text-align:left !important}
+.grup{font-size:.66rem;font-weight:700;letter-spacing:.12em;color:#64748b;margin:1rem 0 .35rem .3rem}
+[data-testid="stSidebar"] [data-testid="stExpander"]{background:transparent;border:0;box-shadow:none;margin-bottom:.2rem}
+[data-testid="stSidebar"] [data-testid="stExpander"] details{border:0}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary{font-weight:600;font-size:.92rem;padding:.55rem .5rem;border-radius:8px}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover{background:rgba(255,255,255,.05)}
+[data-testid="stSidebar"] [data-testid="stExpanderDetails"]{padding:.1rem 0 .3rem .5rem;border-left:1px solid rgba(255,255,255,.1);margin-left:1rem}
+[class*="st-key-nav_"] button{justify-content:flex-start !important;text-align:left !important;border:0 !important;
+  border-radius:8px;min-height:2.4rem;background:transparent !important;color:#cbd5e1 !important;
+  font-weight:500;font-size:.9rem;box-shadow:inset 3px 0 0 transparent}
+[class*="st-key-nav_"] button:hover{background:rgba(255,255,255,.06) !important;color:#fff !important}
+[class*="st-key-nav_"] button[kind="primary"]{background:rgba(52,168,116,.18) !important;color:#fff !important;
+  font-weight:600;box-shadow:inset 3px 0 0 #34d399}
 [class*="st-key-nav_"] button > div,[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"],
-[class*="st-key-nav_"] button p{width:100%;text-align:left !important;justify-content:flex-start !important}
-[class*="st-key-nav_"] button:hover{filter:brightness(1.2)}
+[class*="st-key-nav_"] button p{text-align:left !important;justify-content:flex-start !important}
+[class*="st-key-nav_muat"] button{border:1px solid rgba(255,255,255,.12) !important;justify-content:center !important}
 .st-key-kartu_filter,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
@@ -426,26 +431,38 @@ HALAMAN = ["Beranda"] + UTAMA + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Beranda": "🏠", "Per tanggal": "📅", "Belum mengisi": "⏳", "Pegawai": "👥", "Bidang": "🏢",
-        "Kategori": "🏷️", "Tanggal dikecualikan": "🚫", "Cadangan dan pindah data": "💾"}
+IKON = {"Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions",
+        "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
+        "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
+LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
+        '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0" stop-color="#34a874"/><stop offset="1" stop-color="#1f6b49"/></linearGradient></defs>'
+        '<rect width="38" height="38" rx="10" fill="url(#g)"/>'
+        '<rect x="9" y="21" width="4.5" height="8" rx="1.2" fill="#fff" fill-opacity=".55"/>'
+        '<rect x="16.7" y="16" width="4.5" height="13" rx="1.2" fill="#fff" fill-opacity=".8"/>'
+        '<path d="M10 13.5l4 4 9-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" '
+        'stroke-linejoin="round" transform="translate(5 -1)"/></svg>')
 with st.sidebar:
-    st.markdown('<div class="brand"><div class="b1">Rekap Isian Pekerja</div>'
-                '<div class="b2">Pencatatan keterisian laporan WFA</div></div>',
+    st.markdown(f'<div class="brand">{LOGO}<div><div class="b1">Rekap Isian</div>'
+                '<div class="b2">Keterisian laporan WFA</div></div></div>',
                 unsafe_allow_html=True)
+
     def tombol_nav(h):
-        st.button(f"{IKON[h]}  {h}", key=f"nav_{h}", use_container_width=True,
+        st.button(h, key=f"nav_{h}", use_container_width=True, icon=f":material/{IKON[h]}:",
                   type="primary" if h == halaman else "secondary",
                   on_click=atur, args=("halaman", h))
 
+    st.markdown('<div class="grup">UTAMA</div>', unsafe_allow_html=True)
     tombol_nav("Beranda")
-    with st.expander("📌  Aktivitas WFA", expanded=halaman in UTAMA):
+    st.markdown('<div class="grup">MENU</div>', unsafe_allow_html=True)
+    with st.expander("Aktivitas WFA", icon=":material/assignment:", expanded=halaman in UTAMA):
         for h in UTAMA:
             tombol_nav(h)
-    with st.expander("🗂️  Master data", expanded=halaman in MASTER):
+    with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
         for h in MASTER:
             tombol_nav(h)
     st.markdown('<div class="sp"></div>', unsafe_allow_html=True)
-    if st.button("🔄  Muat ulang", key="nav_muat", use_container_width=True,
+    if st.button("Muat ulang", key="nav_muat", use_container_width=True, icon=":material/refresh:",
                  help="Ambil data terbaru dari penyimpanan"):
         muat_ke_sesi()
         st.rerun()
