@@ -454,6 +454,40 @@ def cb_tw_balik(kunci_tw: str, bid: str, kol: str):
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
+def cb_tw_semua(kunci_tw: str, pids: list, kols: list):
+    """Tandai semua (atau lepas semua kalau sudah tercentang semua) untuk pegawai dan kolom yang dipilih."""
+    data = st.session_state.data
+    tw = data.setdefault("triwulan", {})
+    lama = copy.deepcopy(tw.get(kunci_tw))
+    isi = {k: list(v) for k, v in (lama or {}).items()}
+    semua = all(kol in isi.get(pid, []) for pid in pids for kol in kols)
+    for pid in pids:
+        daftar = isi.setdefault(pid, [])
+        for kol in kols:
+            if semua and kol in daftar:
+                daftar.remove(kol)
+            elif not semua and kol not in daftar:
+                daftar.append(kol)
+    isi = {k: v for k, v in isi.items() if v}
+    if isi:
+        tw[kunci_tw] = isi
+    else:
+        tw.pop(kunci_tw, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ketuk ulang.")
+    except Exception as e:
+        if lama is None:
+            tw.pop(kunci_tw, None)
+        else:
+            tw[kunci_tw] = lama
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+
+
 def cb_tw_ket(kunci_tw: str, pid: str, kunci_widget: str):
     """Simpan teks keterangan triwulan (diketik manual)."""
     data = st.session_state.data
@@ -800,6 +834,8 @@ if halaman == "Isian triwulan" and D["pekerja"]:
     with st.container(key="kartu_filter"):
         tahun, tw = pilih_periode("isi", True)
         pks_tw = pilih_pekerja("f_bidang_tw", per_nama=True)
+        tampil_semua = st.toggle("Tampilkan tombol Tandai semua", value=True, key="tw_tampil_semua",
+                                 help="Matikan untuk menyembunyikan tombol agar tidak terketuk tanpa sengaja.")
     kunci_tw = f"{tahun}-T{tw}"
     isi_tw = D["triwulan"].get(kunci_tw, {})
     total = len(pks_tw) * len(KOLOM_WAJIB)
@@ -825,6 +861,10 @@ if halaman == "Isian triwulan" and D["pekerja"]:
             if kd == "ket":
                 judul += " (opsional)"
             kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
+            if tampil_semua and kd != "ket":
+                kol.button("Tandai semua", key=f"all_tw_{kd}", on_click=cb_tw_semua,
+                           args=(kunci_tw, [p["id"] for p in pks_tw], [kd]),
+                           help="Tandai kolom ini untuk semua pegawai yang tampil (ketuk lagi untuk melepas)")
         for judul_b, anggota in kelompok(pks_tw):
             if judul_b:
                 judul_bidang(judul_b, len(anggota))
@@ -838,6 +878,10 @@ if halaman == "Isian triwulan" and D["pekerja"]:
                     f'<div class="peg">{html.escape(nama_lengkap(p))}</div>'
                     + (f'<div class="nip">{html.escape(nip)}</div>' if nip else ""),
                     unsafe_allow_html=True)
+                if tampil_semua:
+                    baris[0].button("Tandai semua", key=f"all_tw_p_{p['id']}", on_click=cb_tw_semua,
+                                    args=(kunci_tw, [p["id"]], [k for k, _ in KOLOM_WAJIB]),
+                                    help="Tandai semua kolom pegawai ini (ketuk lagi untuk melepas)")
                 for kol, (kode, _) in zip(baris[1:], KOLOM_TW):
                     if kode == "ket":
                         kw = f"ket_{kunci_tw}_{p['id']}"
