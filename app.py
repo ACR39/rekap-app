@@ -1676,11 +1676,9 @@ if halaman == "Rekap cuti dan DL":
                 m1.metric("Pegawai", len(urut_c))
                 m2.metric("Hari cuti", n_cuti)
                 m3.metric("Hari DL", n_dl)
-                baris_c = []
                 for judul, anggota in kelompok(urut_c):
                     if judul:
                         judul_bidang(judul, len(anggota))
-                        baris_c.append(f"[{judul}]")
                     for p in anggota:
                         catatan = sorted(per_c[p["id"]])
                         nc = sum(s_ == "Cuti" for _, s_ in catatan)
@@ -1697,10 +1695,6 @@ if halaman == "Rekap cuti dan DL":
                                               key=f"chip_{s_.lower()}_{p['id']}_{t_.isoformat()}",
                                               on_click=cb_lompat, args=(t_.isoformat(), p["id"]),
                                               help="Buka tanggal ini di Per tanggal")
-                        baris_c.append(f"{nama_lengkap(p)} ({ringkas}): "
-                                       + "; ".join(f"{fmt(t_)} ({s_})" for t_, s_ in catatan))
-                st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
-                st.code("\n".join(baris_c), language=None)
 
 # ----------------------------------------------------------------------- kelola
 def versi() -> int:
