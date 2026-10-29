@@ -132,6 +132,59 @@ KOLOM_TW = [("sasaran", "Sasaran dan Indikator"), ("realisasi", "Realisasi"),
             ("bukti", "Bukti Dukung"), ("ket", "Keterangan")]
 # Keterangan bersifat opsional: tidak dihitung dalam persen, "lengkap", maupun "belum".
 KOLOM_WAJIB = [(k, j) for k, j in KOLOM_TW if k != "ket"]
+
+# Data dukung evaluasi SAKIP: (nomor komponen, nama komponen, [(data pendukung, bukti dukung), ...])
+SK_KADIS = "SK Kadis (Petunjuk Teknis) Pengelolaan Kinerja Dinas Perhubungan"
+DUKUNG = [
+    (1, "Perencanaan Kinerja", [
+        ("Kebijakan internal/SOP tentang proses penyusunan perencanaan kinerja", SK_KADIS),
+        ("RENSTRA", "RENSTRA 2024-2026 dan RENSTRA 2025-2029"),
+        ("RKT/RENJA yang telah ditandatangani Kepala PD", "RENJA TA. 2025"),
+        ("RKA (Formulir yang menampilkan rekapitulasi program dan kegiatan)", "RKA/DPA TA. 2025"),
+        ("Publikasi via Website/Rapat Internal disertai bukti dukung berupa undangan, daftar hadir dan notulen",
+         "Bukti Upload di Website, Notulen Rapat/BA RENSTRA/RENJA/RKA/DPA"),
+        ("Perjanjian Kinerja dan IKU yang ditandatangani Kepala Perangkat Daerah dengan Gubernur",
+         "PK dan IKU TA.2025 Murni dan Perubahan serta PK dan IKU TA.2026"),
+        ("Perjanjian Kinerja dan Indikator Kinerja Individu seluruh pegawai yang telah bertanda tangan",
+         "PK Eselon III, IV dan IKI Pelaksana & P3K TA.2025 dan TA.2026"),
+        ("Realisasi Capaian Kinerja/Pengukuran Kinerja Kepala Dinas dan seluruh pegawai",
+         "Laporan Realisasi PK/IKI secara Triwulan TA. 2025"),
+        ("Dokumen rencana aksi beserta hasil monev", "Dokumen rencana aksi dan realisasinya"),
+        ("Laporan hasil reviu dokumen perencanaan kinerja yang menjelaskan tentang latar belakang dilakukan "
+         "revisi (apabila terjadi revisi dokumen perencanaan)", "BA Reviu RENSTRA/RENJA/RKA/DPA/PK/IKI"),
+    ]),
+    (2, "Pengukuran Kinerja", [
+        ("Pergub/SK/SOP internal tentang penyusunan IKI/Pengukuran Kinerja dan Pengumpulan Data Kinerja", SK_KADIS),
+        ("SOP pengumpulan data kinerja yang didalamnya mengatur pengumpulan data kinerja secara berkala "
+         "dan secara berjenjang", SK_KADIS),
+        ("Notulen rapat evaluasi, dokumen pendukung (Laporan Capaian Kinerja, Monev Pembangunan, TEPRA)",
+         "Notula/BA Rapat evaluasi Radalok/TEPRA"),
+        ("Pengukuran kinerja dan data dukung capaian kinerja (Laporan Kegiatan Triwulan/Semesteran/Tahunan) "
+         "yang dilakukan berjenjang", "Laporan Realisasi/Capaian Kinerja PK/IKI secara Triwulan TA. 2025"),
+        ("Aplikasi terkait Teknologi Informasi", "e-SAKIP, Website, Google Spreadsheet"),
+        ("Reward dan Punishment (Piagam ucapan terimakasih, pengumuman saat rapat (Notulen Rapat), Teguran Lisan)",
+         "Piagam, Sertifikat, Surat Teguran, Salinan Pengumuman"),
+        ("Mutasi Jabatan didasarkan pada capaian kinerja", "Mutasi, Promosi Jabatan"),
+        ("Hasil evaluasi atas pengukuran kinerja",
+         "Laporan Evaluasi dari Laporan Realisasi/Capaian Kinerja PK/IKI secara Triwulan TA. 2025"),
+        ("Pengajuan formasi analisis jabatan dan analisis beban kerja pada Biro Organisasi dan/atau BKD",
+         "Dokumen Anjab/ABK atau revisi Anjab/ABK"),
+        ("Cascading dan/atau Croscutting penjabaran sasaran kinerja eselon II",
+         "Diagram Cascading dan/atau Croscutting 2025 & 2026 yang bertanda tangan"),
+    ]),
+    (3, "Pelaporan Kinerja", [
+        ("LKjIP (Soft File)", ""),
+        ("Lakip telah diupload di Web", ""),
+        ("Bukti tanda terima pengiriman Lakip",
+         "Bukti Upload di website esr.menpan.go.id dan e-sakip.kaltimprov.go.id"),
+    ]),
+    (4, "Dokumen Pendukung Lainnya", [
+        ("Penghargaan tingkat Provinsi dan Nasional", ""),
+        ("Laporan hasil monitoring dan evaluasi capaian kinerja baik capaian PK, IKI, dan Rencana Aksi yang "
+         "dilakukan secara berkala (bulanan/triwulan/tahunan) yang menginformasikan kendala/hambatan serta "
+         "tindak lanjutnya", ""),
+    ]),
+]
 ROMAWI = {1: "I", 2: "II", 3: "III", 4: "IV"}
 BULAN_TW = {1: "Januari - Maret", 2: "April - Juni", 3: "Juli - September", 4: "Oktober - Desember"}
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
@@ -182,6 +235,7 @@ def data_kosong() -> dict:
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
+        "dukung": {},    # {"1.1": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
     }
 
 
@@ -255,7 +309,7 @@ def simpan(data: dict):
 
 def muat_ke_sesi():
     st.session_state.data, st.session_state.sha = muat()
-    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_", "ket_", "abs_"))]:
+    for k in [k for k in st.session_state if str(k).startswith(("c_", "pend_", "ket_", "abs_", "dk_"))]:
         del st.session_state[k]
 
 
@@ -518,6 +572,36 @@ def cb_tw_ket(kunci_tw: str, pid: str, kunci_widget: str):
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
+def cb_dukung(kid: str, bidang_isi: str, kunci_widget: str):
+    """Simpan Keterangan atau Link satu baris Data dukung evaluasi."""
+    data = st.session_state.data
+    kamus = data.setdefault("dukung", {})
+    lama = copy.deepcopy(kamus.get(kid))
+    isi = dict(lama or {})
+    teks = " ".join(str(st.session_state.get(kunci_widget, "")).split())
+    if teks:
+        isi[bidang_isi] = teks
+    else:
+        isi.pop(bidang_isi, None)
+    if isi:
+        kamus[kid] = isi
+    else:
+        kamus.pop(kid, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ketik ulang.")
+    except Exception as e:
+        if lama is None:
+            kamus.pop(kid, None)
+        else:
+            kamus[kid] = lama
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+
+
 def cb_tw_lompat(tahun: int, tw: int, pid: str):
     p = next((x for x in st.session_state.data["pekerja"] if x["id"] == pid), None)
     st.session_state.tw_tahun = tahun
@@ -638,11 +722,12 @@ if not cfg_github():
 UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
-HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
+DUKUNG_HAL = "Data dukung evaluasi"
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Isian triwulan": "checklist", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
+IKON = {"Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -672,6 +757,7 @@ with st.sidebar:
     with st.expander("Keterisian Triwulan", icon=":material/fact_check:", expanded=halaman in TRIWULAN):
         for h in TRIWULAN:
             tombol_nav(h)
+    tombol_nav(DUKUNG_HAL)
     with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
         for h in MASTER:
             tombol_nav(h)
@@ -682,7 +768,7 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
-st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else "AKTIVITAS WFA"))}</div><div class="judul-hal">{halaman}</div>',
+st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else "AKTIVITAS WFA")))}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
 def pilih_periode(sufiks: str, dengan_tw: bool):
@@ -1171,6 +1257,54 @@ if halaman == "Sudah mengisi":
                             for p in sorted(anggota, key=lambda p: nama_lengkap(p).lower()):
                                 st.markdown(f'<div class="peg">{html.escape(nama_lengkap(p))}</div>',
                                             unsafe_allow_html=True)
+
+# ------------------------------------------------------------ data dukung evaluasi
+if halaman == DUKUNG_HAL:
+    dk = D.get("dukung", {})
+    semua_id = [f"{n}.{i}" for n, _, baris_ in DUKUNG for i in range(1, len(baris_) + 1)]
+    ada_link = sum(bool(dk.get(k, {}).get("link")) for k in semua_id)
+    st.markdown(
+        '<div class="statcard"><div class="sc-kiri"><span class="tag">SAKIP</span>'
+        '<div class="sc-judul">Data dukung evaluasi</div>'
+        f'<div class="sc-ket">{ada_link} dari {len(semua_id)} data dukung sudah ada link-nya</div></div>'
+        '<div class="sc-stat"><div class="sc-lab">Sudah ada link</div>'
+        f'<div class="sc-val g">{ada_link}</div></div>'
+        '<div class="sc-stat"><div class="sc-lab">Belum</div>'
+        f'<div class="sc-val m">{len(semua_id) - ada_link}</div></div></div>',
+        unsafe_allow_html=True)
+    st.progress(ada_link / len(semua_id))
+    if st.session_state.get("pesan_isian"):
+        st.error(st.session_state.pesan_isian)
+
+    with st.container(key="kartu_tabel"):
+        lebar_dk = [0.5, 2, 4.2, 3.2, 2.6, 3]
+        kep = st.columns(lebar_dk, vertical_alignment="top")
+        for kol, judul in zip(kep, ["No", "Komponen SAKIP", "Data - data pendukung", "Bukti dukung",
+                                    "Keterangan", "Link data dukung"]):
+            kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
+        for n_komp, nama_komp, baris_dk in DUKUNG:
+            st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+            for i, (data_p, bukti) in enumerate(baris_dk, start=1):
+                kid = f"{n_komp}.{i}"
+                b = st.columns(lebar_dk, vertical_alignment="center")
+                if i == 1:
+                    b[0].markdown(f"**{n_komp}**")
+                    b[1].markdown(f"**{html.escape(nama_komp.upper())}**")
+                b[2].markdown(f"{i}. {html.escape(data_p)}")
+                b[3].markdown(html.escape(bukti) if bukti else "")
+                kw_k, kw_l = f"dk_ket_{kid}", f"dk_link_{kid}"
+                b[4].text_input("Keterangan", key=kw_k, label_visibility="collapsed",
+                                value=dk.get(kid, {}).get("ket", ""), placeholder="Keterangan...",
+                                on_change=cb_dukung, args=(kid, "ket", kw_k))
+                tautan = dk.get(kid, {}).get("link", "")
+                b[5].text_input("Link", key=kw_l, label_visibility="collapsed", value=tautan,
+                                placeholder="Tempel link (Google Drive dll.)...",
+                                on_change=cb_dukung, args=(kid, "link", kw_l))
+                if tautan.lower().startswith(("http://", "https://")):
+                    b[5].markdown(f'<a href="{html.escape(tautan, quote=True)}" target="_blank" '
+                                  'rel="noopener noreferrer">Buka tautan ↗</a>', unsafe_allow_html=True)
+                st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
+        st.caption("Keterangan dan link diketik lalu tekan Enter; setiap isian langsung tersimpan.")
 
 # ------------------------------------------------------------- rekap cuti dan DL
 if halaman == "Rekap cuti dan DL":
