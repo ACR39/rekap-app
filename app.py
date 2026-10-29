@@ -1042,14 +1042,15 @@ if halaman == "Belum mengisi":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
-        a, b, c = st.columns(3)
-        dari = a.date_input("Dari", value=AWAL_WFA, key="dari", format="DD/MM/YYYY")
-        sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
-        nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
-        pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
-        pks_lap = pilih_pekerja("f_bidang_lap", wfa=True)
-        st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan, serta pegawai yang "
-                   "Cuti atau DL pada tanggal itu, dilewati.")
+        with st.container(key="kartu_filter"):
+            a, b, c = st.columns(3)
+            dari = a.date_input("Dari", value=AWAL_WFA, key="dari", format="DD/MM/YYYY")
+            sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
+            nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
+            pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
+            pks_lap = pilih_pekerja("f_bidang_lap", wfa=True)
+            st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan, serta pegawai yang "
+                       "Cuti atau DL pada tanggal itu, dilewati.")
 
         if dari > sampai:
             st.error("Tanggal awal harus sebelum tanggal akhir.")
@@ -1107,65 +1108,82 @@ if halaman == "Sudah mengisi":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
-        if "tgl_sdh" not in st.session_state:
-            st.session_state.tgl_sdh = jumat_terakhir(date.today())
+        if "dari_sdh" not in st.session_state:
+            st.session_state.dari_sdh = jumat_terakhir(date.today())
+        if "sampai_sdh" not in st.session_state:
+            st.session_state.sampai_sdh = jumat_terakhir(date.today())
         with st.container(key="kartu_filter"):
-            c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
-            c1.button("‹", key="prev_sdh", help="Jumat sebelumnya (tanggal dikecualikan dilewati)",
+            c1, c2, c3 = st.columns([3, 3, 2], vertical_alignment="bottom")
+            dari_s = c1.date_input("Dari", key="dari_sdh", format="DD/MM/YYYY")
+            sampai_s = c2.date_input("Sampai", key="sampai_sdh", format="DD/MM/YYYY")
+            c3.button("Jumat terakhir", key="last_sdh", use_container_width=True,
                       on_click=lambda: st.session_state.update(
-                          tgl_sdh=lompat(st.session_state.tgl_sdh, -1)))
-            c2.date_input("Tanggal (Jumat WFA)", key="tgl_sdh", format="DD/MM/YYYY",
-                          on_change=lambda: st.session_state.update(
-                              tgl_sdh=jumat_terakhir(st.session_state.tgl_sdh)))
-            c3.button("›", key="next_sdh", help="Jumat berikutnya (tanggal dikecualikan dilewati)",
-                      on_click=lambda: st.session_state.update(
-                          tgl_sdh=lompat(st.session_state.tgl_sdh, 1)))
-            c4.button("Jumat terakhir", key="last_sdh",
-                      on_click=lambda: st.session_state.update(
-                          tgl_sdh=jumat_terakhir(date.today())))
-            tgl_s_d = st.session_state.tgl_sdh
-            tgl_s = tgl_s_d.isoformat()
-            if tgl_s in D["libur"]:
-                ket_s = D["libur"][tgl_s]
-                st.info("Tanggal ini dikecualikan" + (f": {ket_s}" if ket_s else "") + ".")
+                          dari_sdh=jumat_terakhir(date.today()),
+                          sampai_sdh=jumat_terakhir(date.today())))
             pks_s = pilih_pekerja("f_bidang_sdh", wfa=True)
+            st.caption("Hanya menghitung hari Jumat. Yang tampil adalah pegawai yang lengkap mengisi "
+                       "(semua kategori) di setiap Jumat pada rentang ini. Tanggal yang dikecualikan, "
+                       "serta Jumat saat pegawai Cuti atau DL, dilewati. Pilih tanggal yang sama di "
+                       "Dari dan Sampai untuk satu hari saja.")
 
-        lengkap = [p for p in pks_s
-                   if all(terisi(tgl_s, k["id"], p["id"]) for k in D["kategori"])]
-        st.markdown(
-            '<div class="statcard"><div class="sc-kiri">'
-            '<span class="tag">WFA Jumat</span>'
-            f'<div class="sc-judul">{html.escape(fmt(tgl_s_d))}</div>'
-            f'<div class="sc-ket">{len(lengkap)} dari {len(pks_s)} pegawai sudah lengkap mengisi</div></div>'
-            '<div class="sc-stat"><div class="sc-lab">Sudah lengkap</div>'
-            f'<div class="sc-val g">{len(lengkap)}</div></div>'
-            '<div class="sc-stat"><div class="sc-lab">Belum lengkap</div>'
-            f'<div class="sc-val m">{len(pks_s) - len(lengkap)}</div></div></div>',
-            unsafe_allow_html=True)
-        st.progress(len(lengkap) / len(pks_s) if pks_s else 0.0)
-
-        if not lengkap:
-            st.info("Belum ada pegawai yang lengkap mengisi pada tanggal ini.")
+        if dari_s > sampai_s:
+            st.error("Tanggal awal harus sebelum tanggal akhir.")
+        elif (sampai_s - dari_s).days + 1 > MAKS_HARI:
+            st.error("Rentang maksimal 2 tahun (731 hari).")
         else:
-            with st.container(key="kartu_tabel"):
-                for judul, anggota in kelompok(lengkap):
-                    if judul:
-                        judul_bidang(judul, len(anggota))
-                    for p in sorted(anggota, key=lambda p: nama_lengkap(p).lower()):
-                        st.markdown(f'<div class="peg">{html.escape(nama_lengkap(p))}</div>',
-                                    unsafe_allow_html=True)
+            jumat_s = []
+            d = dari_s
+            while d <= sampai_s:
+                if d.weekday() == 4 and d.isoformat() not in D["libur"]:
+                    jumat_s.append(d.isoformat())
+                d += timedelta(days=1)
+            if not jumat_s:
+                st.info("Tidak ada hari Jumat WFA pada rentang ini.")
+            else:
+                lengkap = []
+                for p in pks_s:
+                    hitung = [t for t in jumat_s if not absen_status(t, p["id"])]
+                    if hitung and all(terisi(t, k["id"], p["id"])
+                                      for t in hitung for k in D["kategori"]):
+                        lengkap.append(p)
+                st.markdown(
+                    '<div class="statcard"><div class="sc-kiri">'
+                    '<span class="tag">WFA Jumat</span>'
+                    f'<div class="sc-judul">{html.escape(fmt(dari_s))}'
+                    + (f' s.d. {html.escape(fmt(sampai_s))}' if dari_s != sampai_s else "")
+                    + '</div>'
+                    f'<div class="sc-ket">{len(lengkap)} dari {len(pks_s)} pegawai lengkap mengisi '
+                    f'· {len(jumat_s)} hari Jumat</div></div>'
+                    '<div class="sc-stat"><div class="sc-lab">Sudah lengkap</div>'
+                    f'<div class="sc-val g">{len(lengkap)}</div></div>'
+                    '<div class="sc-stat"><div class="sc-lab">Belum lengkap</div>'
+                    f'<div class="sc-val m">{len(pks_s) - len(lengkap)}</div></div></div>',
+                    unsafe_allow_html=True)
+                st.progress(len(lengkap) / len(pks_s) if pks_s else 0.0)
+
+                if not lengkap:
+                    st.info("Belum ada pegawai yang lengkap mengisi pada rentang ini.")
+                else:
+                    with st.container(key="kartu_tabel"):
+                        for judul, anggota in kelompok(lengkap):
+                            if judul:
+                                judul_bidang(judul, len(anggota))
+                            for p in sorted(anggota, key=lambda p: nama_lengkap(p).lower()):
+                                st.markdown(f'<div class="peg">{html.escape(nama_lengkap(p))}</div>',
+                                            unsafe_allow_html=True)
 
 # ------------------------------------------------------------- rekap cuti dan DL
 if halaman == "Rekap cuti dan DL":
     if not D["pekerja"]:
         st.info("Belum ada pegawai. Tambahkan dulu di menu Master data > Pegawai.")
     else:
-        a, b, c = st.columns(3)
-        dari_c = a.date_input("Dari", value=AWAL_WFA, key="dari_cd", format="DD/MM/YYYY")
-        sampai_c = b.date_input("Sampai", value=date(date.today().year, 12, 31), key="sampai_cd",
-                                format="DD/MM/YYYY")
-        jenis_c = c.selectbox("Status", ["Cuti dan DL"] + STATUS_ABSEN, key="jenis_cd")
-        pks_c = pilih_pekerja("f_bidang_cd")
+        with st.container(key="kartu_filter"):
+            a, b, c = st.columns(3)
+            dari_c = a.date_input("Dari", value=AWAL_WFA, key="dari_cd", format="DD/MM/YYYY")
+            sampai_c = b.date_input("Sampai", value=date(date.today().year, 12, 31), key="sampai_cd",
+                                    format="DD/MM/YYYY")
+            jenis_c = c.selectbox("Status", ["Cuti dan DL"] + STATUS_ABSEN, key="jenis_cd")
+            pks_c = pilih_pekerja("f_bidang_cd")
         if dari_c > sampai_c:
             st.error("Tanggal awal harus sebelum tanggal akhir.")
         elif (sampai_c - dari_c).days + 1 > MAKS_HARI:
