@@ -76,7 +76,7 @@ st.markdown("""
 [class*="st-key-chip_cuti_"] button{background:#fff4d6 !important;color:#8a5a00 !important}
 [class*="st-key-chip_dl_"] button{background:#e0ecff !important;color:#1d4ed8 !important}
 [data-testid="InputInstructions"]{display:none}
-.thead-s{background:#256b4a;color:#fff;font-weight:650;font-size:.7rem;letter-spacing:.03em;text-transform:uppercase;text-align:center;padding:.5rem .25rem;border-radius:4px;min-height:2.6rem;display:flex;align-items:center;justify-content:center}
+.thead-s{background:#256b4a;color:#fff;font-weight:650;font-size:.7rem;letter-spacing:.03em;text-transform:uppercase;text-align:center;padding:.3rem .25rem;border-radius:4px;height:3rem;min-height:3rem;box-sizing:border-box;line-height:1.15;display:flex;align-items:center;justify-content:center}
 .thead{background:#256b4a;color:#fff;font-weight:650;padding:.55rem .7rem;border-radius:4px;font-size:.9rem}
 [class*="st-key-thead_"],[class*="st-key-thead_"] [data-testid="stButton"]{width:100%}
 [class*="st-key-thead_"] button{width:100%;background:#256b4a !important;color:#fff !important;border:0 !important;
@@ -635,14 +635,14 @@ if not cfg_github():
     st.warning("Mode uji coba: data disimpan di file lokal dan bisa hilang saat aplikasi "
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
-UTAMA = ["Per tanggal", "Belum mengisi", "Rekap cuti dan DL"]
+UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + MASTER
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Isian triwulan": "checklist", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Rekap cuti dan DL": "beach_access",
+IKON = {"Isian triwulan": "checklist", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -854,7 +854,7 @@ if halaman == "Isian triwulan" and D["pekerja"]:
         st.error(st.session_state.pesan_isian)
     with st.container(key="kartu_tabel"):
         lebar_tw = [2.6] + [1.5] * (len(KOLOM_TW) - 1) + [3.2]
-        kep = st.columns(lebar_tw, vertical_alignment="center")
+        kep = st.columns(lebar_tw, vertical_alignment="top")
         kep[0].markdown('<div class="thead-s" style="justify-content:flex-start;padding-left:.7rem">Pegawai</div>',
                         unsafe_allow_html=True)
         for kol, (kd, judul) in zip(kep[1:], KOLOM_TW):
@@ -862,9 +862,9 @@ if halaman == "Isian triwulan" and D["pekerja"]:
                 judul += " (opsional)"
             kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
             if tampil_semua and kd != "ket":
-                kol.button("Tandai semua", key=f"all_tw_{kd}", on_click=cb_tw_semua,
+                kol.button("Semua", key=f"all_tw_{kd}", on_click=cb_tw_semua, use_container_width=True,
                            args=(kunci_tw, [p["id"] for p in pks_tw], [kd]),
-                           help="Tandai kolom ini untuk semua pegawai yang tampil (ketuk lagi untuk melepas)")
+                           help="Tandai semua: kolom ini untuk semua pegawai yang tampil (ketuk lagi untuk melepas)")
         for judul_b, anggota in kelompok(pks_tw):
             if judul_b:
                 judul_bidang(judul_b, len(anggota))
@@ -988,13 +988,15 @@ if halaman == "Per tanggal":
             ada_jabatan = any(p.get("jabatan") for p in pks)
             lebar = [4] + ([3] if ada_jabatan else []) + [1.7] + [2.2] * len(kats)
             geser = 3 if ada_jabatan else 2
-            kepala = st.columns(lebar)
-            kepala[0].markdown("**Pegawai**")
+            kepala = st.columns(lebar, vertical_alignment="top")
+            kiri = 'style="justify-content:flex-start;padding-left:.7rem"'
+            kepala[0].markdown(f'<div class="thead-s" {kiri}>Pegawai</div>', unsafe_allow_html=True)
             if ada_jabatan:
-                kepala[1].markdown("**Jabatan**")
-            kepala[geser - 1].markdown("**Status**")
+                kepala[1].markdown(f'<div class="thead-s" {kiri}>Jabatan</div>', unsafe_allow_html=True)
+            kepala[geser - 1].markdown('<div class="thead-s">Status</div>', unsafe_allow_html=True)
             for i, k in enumerate(kats):
-                kepala[geser + i].markdown(f"**{k['nama']}**")
+                kepala[geser + i].markdown(f'<div class="thead-s">{html.escape(k["nama"])}</div>',
+                                           unsafe_allow_html=True)
                 kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
                                          args=(tgl, k["id"], [p["id"] for p in pks_hitung]))
             for judul, anggota in kelompok(pks):
@@ -1085,11 +1087,9 @@ if halaman == "Belum mengisi":
                 def label(x):
                     return fmt(x[0]) + (f" ({x[1]})" if banyak else "")
 
-                baris_teks = []
                 for judul, anggota in kelompok(urut):
                     if judul:
                         judul_bidang(judul, len(anggota))
-                        baris_teks.append(f"[{judul}]")
                     for p in anggota:
                         with st.container(border=True):
                             st.markdown(
@@ -1101,11 +1101,69 @@ if halaman == "Belum mengisi":
                                     st.button(label(x), key=f"chip_{p['id']}_{x[0].isoformat()}_{x[2]}",
                                               on_click=cb_lompat, args=(x[0].isoformat(), p["id"]),
                                               help="Buka tanggal ini di Per tanggal")
-                        baris_teks.append(f"{nama_lengkap(p)} belum mengisi: "
-                                          + "; ".join(label(x) for x in per[p["id"]]))
-                teks = "\n".join(baris_teks)
-                st.caption("Teks untuk disalin (tombol salin ada di pojok kanan atas kotak):")
-                st.code(teks, language=None)
+
+# ------------------------------------------------------------- sudah mengisi
+if halaman == "Sudah mengisi":
+    if not D["pekerja"] or not D["kategori"]:
+        st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
+    else:
+        a, b, c = st.columns(3)
+        dari_s = a.date_input("Dari", value=AWAL_WFA, key="dari_sdh", format="DD/MM/YYYY")
+        sampai_s = b.date_input("Sampai", value=date.today(), key="sampai_sdh", format="DD/MM/YYYY")
+        nama_kat_s = {k["id"]: k["nama"] for k in D["kategori"]}
+        pilih_kat_s = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat_s.values()),
+                                  key="kat_sdh")
+        pks_s = pilih_pekerja("f_bidang_sdh", wfa=True)
+        st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan dilewati.")
+
+        if dari_s > sampai_s:
+            st.error("Tanggal awal harus sebelum tanggal akhir.")
+        elif (sampai_s - dari_s).days + 1 > MAKS_HARI:
+            st.error("Rentang maksimal 2 tahun (731 hari).")
+        else:
+            kats_s = [k for k in D["kategori"]
+                      if pilih_kat_s == "Semua kategori" or k["nama"] == pilih_kat_s]
+            banyak_s = len(kats_s) > 1
+            per_s = {}      # id pekerja -> daftar (tanggal, nama kategori, id kategori)
+            tanggal_s = set()
+            d = dari_s
+            while d <= sampai_s:
+                t = d.isoformat()
+                if d.weekday() == 4 and t not in D["libur"]:
+                    for k in kats_s:
+                        for p in pks_s:
+                            if terisi(t, k["id"], p["id"]):
+                                per_s.setdefault(p["id"], []).append((d, k["nama"], k["id"]))
+                                tanggal_s.add(t)
+                d += timedelta(days=1)
+
+            urut_s = sorted((p for p in pks_s if p["id"] in per_s),
+                            key=lambda p: (-len(per_s[p["id"]]), nama_lengkap(p).lower()))
+            if not urut_s:
+                st.info("Belum ada yang mengisi pada rentang ini.")
+            else:
+                jumlah_s = sum(len(v) for v in per_s.values())
+                st.metric("Pekerja yang sudah mengisi", len(urut_s),
+                          help=f"{jumlah_s} isian di {len(tanggal_s)} tanggal")
+                st.caption(f"{jumlah_s} isian sudah terisi di {len(tanggal_s)} tanggal.")
+
+                def label_s(x):
+                    return fmt(x[0]) + (f" ({x[1]})" if banyak_s else "")
+
+                for judul, anggota in kelompok(urut_s):
+                    if judul:
+                        judul_bidang(judul, len(anggota))
+                    for p in anggota:
+                        with st.container(border=True):
+                            st.markdown(
+                                f'<div class="nama">{html.escape(nama_lengkap(p))} '
+                                f'<span class="jml">· {len(per_s[p["id"]])} tanggal</span></div>',
+                                unsafe_allow_html=True)
+                            with st.container(horizontal=True, gap="small"):
+                                for x in per_s[p["id"]]:
+                                    st.button(label_s(x), key=f"sdh_{p['id']}_{x[0].isoformat()}_{x[2]}",
+                                              on_click=cb_lompat, args=(x[0].isoformat(), p["id"]),
+                                              help="Buka tanggal ini di Per tanggal")
 
 # ------------------------------------------------------------- rekap cuti dan DL
 if halaman == "Rekap cuti dan DL":
