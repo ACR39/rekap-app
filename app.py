@@ -317,8 +317,9 @@ def fmt(d: date) -> str:
 def data_kosong() -> dict:
     return {
         "bidang": [],   # [{"id","nama"}]
-        "pekerja": [],  # [{"id","nama","bidang"(opsional, id bidang)}]
+        "pekerja": [],  # [{"id","nama","bidang"(opsional, id bidang),"subbidang"(opsional)}]
         "kategori": [{"id": "k1", "nama": "Laporan harian"}],
+        "subbidang": [],  # [{"id","nama","bidang"(id bidang induk)}]
         "libur": {},   # {"2026-10-23": "Keterangan"}
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
@@ -620,15 +621,44 @@ def nama_bidang(p: dict) -> str:
     return peta.get(p.get("bidang"), TANPA)
 
 
+def sub_dari(p: dict):
+    """Sub bidang pegawai (dict) kalau valid dan masih di bawah bidangnya, kalau tidak None."""
+    sid = p.get("subbidang")
+    if not sid:
+        return None
+    return next((x for x in D["subbidang"]
+                 if x["id"] == sid and x["bidang"] == p.get("bidang")), None)
+
+
+def nama_sub(p: dict) -> str:
+    x = sub_dari(p)
+    return x["nama"] if x else ""
+
+
+def nama_unit(p: dict) -> str:
+    """Bidang, ditambah sub bidang kalau ada. Dipakai untuk tampilan dan pencarian."""
+    n = nama_bidang(p)
+    sb = nama_sub(p)
+    return f"{n} › {sb}" if sb else n
+
+
 def kelompok(pks):
-    """Bagi pekerja per bidang. Tanpa bidang yang dibuat: satu kelompok tanpa judul."""
+    """Bagi pekerja per bidang, lalu per sub bidang di dalamnya.
+    Tanpa bidang yang dibuat: satu kelompok tanpa judul."""
     if not D["bidang"]:
         return [(None, list(pks))]
     hasil = []
     for b in D["bidang"]:
-        anggota = [p for p in pks if p.get("bidang") == b["id"]]
-        if anggota:
-            hasil.append((b["nama"], anggota))
+        milik = [p for p in pks if p.get("bidang") == b["id"]]
+        langsung = [p for p in milik if sub_dari(p) is None]
+        if langsung:
+            hasil.append((b["nama"], langsung))
+        for sb in D["subbidang"]:
+            if sb["bidang"] != b["id"]:
+                continue
+            anggota = [p for p in milik if p.get("subbidang") == sb["id"]]
+            if anggota:
+                hasil.append((f"{b['nama']} › {sb['nama']}", anggota))
     ids = {b["id"] for b in D["bidang"]}
     lain = [p for p in pks if p.get("bidang") not in ids]
     if lain:
@@ -654,6 +684,16 @@ def pilih_pekerja(kunci: str, per_nama: bool = False, wfa: bool = False):
         pilih = st.selectbox("Bidang", opsi, key=kunci)
         if pilih != "Semua bidang":
             hasil = [p for p in semua if nama_bidang(p) == pilih]
+            induk = next((b for b in D["bidang"] if b["nama"] == pilih), None)
+            subs = [x for x in D["subbidang"] if induk and x["bidang"] == induk["id"]]
+            if subs:
+                semua_sub, tanpa_sub = "Semua sub bidang", "Tanpa sub bidang"
+                ps = st.selectbox("Sub bidang", [semua_sub] + [x["nama"] for x in subs] + [tanpa_sub],
+                                  key=f"{kunci}_sub_{induk['id']}")
+                if ps == tanpa_sub:
+                    hasil = [p for p in hasil if sub_dari(p) is None]
+                elif ps != semua_sub:
+                    hasil = [p for p in hasil if nama_sub(p) == ps]
     if per_nama:
         dipilih = st.multiselect(
             "Nama (kosongkan untuk menampilkan semua)",
@@ -1031,7 +1071,7 @@ if not cfg_github():
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
-MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
+MASTER = ["Pegawai", "Bidang", "Sub bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + (MASTER if adalah_admin() else [])
@@ -1039,7 +1079,7 @@ if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
 IKON = {"Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
-        "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
+        "Pegawai": "groups", "Bidang": "apartment", "Sub bidang": "account_tree", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
         '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -1751,7 +1791,7 @@ def halaman_pegawai():
                            + ". Ubah atau hapus salah satunya.")
             lebar = [1.2, 2.7, 4.2, 3.0, 2.2, 1.7]
             kolom = [("no", "No."), ("nip", "NIP"), ("nama", "Nama Pegawai"),
-                     ("jabatan", "Jabatan"), ("bidang", "Bidang")]
+                     ("jabatan", "Jabatan"), ("bidang", "Bidang / Sub bidang")]
             kini, naik = st.session_state.get("pg_urut", ("no", True))
             kepala = st.columns(lebar)
             for kol, (kode, judul) in zip(kepala, kolom):
@@ -1763,12 +1803,12 @@ def halaman_pegawai():
                 "nip": lambda x: "".join(str(x.get("nip", "")).split()),
                 "nama": lambda x: x["nama"].lower(),
                 "jabatan": lambda x: (x.get("jabatan", "") == "", x.get("jabatan", "").lower()),
-                "bidang": lambda x: (nama_bidang(x).lower(), x["nama"].lower()),
+                "bidang": lambda x: (nama_unit(x).lower(), x["nama"].lower()),
             }[kini]
             urut = sorted(D["pekerja"], key=kunci_urut, reverse=not naik)
             if cari:
                 urut = [x for x in urut if cari in " ".join(
-                    [x["nama"], str(x.get("nip", "")), x.get("jabatan", ""), nama_bidang(x)]).lower()]
+                    [x["nama"], str(x.get("nip", "")), x.get("jabatan", ""), nama_unit(x)]).lower()]
                 if not urut:
                     st.info("Tidak ada pegawai yang cocok dengan pencarian.")
             for no, p in enumerate(urut, 1):
@@ -1780,7 +1820,7 @@ def halaman_pegawai():
                               + ("" if aktif(p) else " *(nonaktif)*")
                               + ("" if ikut_wfa(p) else " *(tidak WFA)*"))
                 k[3].write(p.get("jabatan", ""))
-                k[4].write(nama_bidang(p) if D["bidang"] else "")
+                k[4].write(nama_unit(p) if D["bidang"] else "")
                 t1, t2 = k[5].columns(2)
                 t1.button("✏️", key=f"pgedit_{p['id']}", help="Ubah",
                           on_click=atur, args=("pg_mode", p["id"]))
@@ -1829,6 +1869,15 @@ def halaman_pegawai():
                 opsi = [""] + list(peta)
                 bid = st.selectbox("Bidang", opsi, index=idx(opsi, p.get("bidang", "")),
                                    format_func=lambda i: TANPA if not i else peta[i])
+            sub = ""
+            if D["bidang"] and D["subbidang"]:
+                pb = {b["id"]: b["nama"] for b in D["bidang"]}
+                ops = [""] + [x["id"] for x in D["subbidang"] if x["bidang"] in pb]
+                pt = {x["id"]: f"{pb[x['bidang']]} › {x['nama']}" for x in D["subbidang"] if x["bidang"] in pb}
+                awal = p.get("subbidang", "") if sub_dari(p) else ""
+                sub = st.selectbox("Sub bidang (boleh kosong)", ops, index=idx(ops, awal),
+                                   format_func=lambda i: "Tanpa sub bidang" if not i else pt[i],
+                                   help="Pilih sub bidang di bawah bidang yang sama dengan pilihan Bidang di atas.")
             yakin = st.checkbox("Ya, hapus pegawai ini") if mode != "baru" else False
             t1, t2, t3, _ = st.columns([1, 1, 1, 3])
             simpan = t1.form_submit_button("Simpan", type="primary")
@@ -1854,11 +1903,16 @@ def halaman_pegawai():
                     st.error("NIP wajib diisi.")
                 elif lain:
                     st.error(f"NIP itu sudah dipakai {nama_lengkap(lain)}.")
+                elif sub and bid and next(x for x in D["subbidang"] if x["id"] == sub)["bidang"] != bid:
+                    st.error("Sub bidang yang dipilih bukan bagian dari bidang di atas.")
                 else:
+                    if sub and not bid:
+                        bid = next(x for x in D["subbidang"] if x["id"] == sub)["bidang"]
                     baru = dict(p) if mode != "baru" else {"id": uuid.uuid4().hex[:8]}
                     isi = {"nama": nama, "nip": nip, "gelar_depan": gd.strip(),
                            "gelar_belakang": gb.strip(), "golongan": gol, "eselon": esl,
-                           "jenis_jabatan": jns, "jabatan": jab.strip(), "bidang": bid}
+                           "jenis_jabatan": jns, "jabatan": jab.strip(), "bidang": bid,
+                           "subbidang": sub}
                     for kunci, v in isi.items():
                         if v or kunci == "nama":
                             baru[kunci] = v
@@ -1906,6 +1960,8 @@ def daftar_sederhana(judul: str, kunci: str, hint: str):
                 c3.button("Batal", key=f"bh_{kunci}_{x['id']}", on_click=atur, args=(k_hapus, None))
                 if c2.button("Ya, hapus", key=f"yh_{kunci}_{x['id']}", type="primary"):
                     D[kunci] = [y for y in D[kunci] if y["id"] != x["id"]]
+                    if kunci == "bidang":   # sub bidang di bawahnya ikut hilang
+                        D["subbidang"] = [y for y in D["subbidang"] if y["bidang"] != x["id"]]
                     selesai_simpan("Dihapus.", **{k_hapus: None})
             else:
                 c1.write(x["nama"])
@@ -1923,6 +1979,65 @@ def daftar_sederhana(judul: str, kunci: str, hint: str):
                     st.error("Nama itu sudah ada.")
                 else:
                     D[kunci].append({"id": uuid.uuid4().hex[:8], "nama": nama})
+                    selesai_simpan("Ditambahkan.")
+
+
+def halaman_subbidang():
+    """Sub bidang selalu berada di bawah satu bidang."""
+    if not D["bidang"]:
+        st.info("Buat bidang dulu di menu Bidang, lalu tambahkan sub bidangnya di sini.")
+        return
+    peta = {b["id"]: b["nama"] for b in D["bidang"]}
+    with st.expander(f"Sub bidang ({len(D['subbidang'])})", expanded=True):
+        st.caption("Sub bidang berada di bawah satu bidang. Setelah ditambah, pilih sub bidang "
+                   "di formulir pegawai. Menghapus sub bidang tidak menghapus pegawainya.")
+        for b in D["bidang"]:
+            milik = [x for x in D["subbidang"] if x["bidang"] == b["id"]]
+            st.markdown(f'<div class="bidang">{html.escape(b["nama"])} · {len(milik)} sub bidang</div>',
+                        unsafe_allow_html=True)
+            if not milik:
+                st.caption("Belum ada sub bidang.")
+            for x in milik:
+                c1, c2, c3 = st.columns([5, 1.8, 1.6], vertical_alignment="center")
+                if st.session_state.get("edit_sub") == x["id"]:
+                    baru = c1.text_input("Nama", value=x["nama"], key=f"nm_sub_{x['id']}",
+                                         label_visibility="collapsed")
+                    c3.button("Batal", key=f"bt_sub_{x['id']}", on_click=atur, args=("edit_sub", None))
+                    if c2.button("Simpan", key=f"sv_sub_{x['id']}", type="primary"):
+                        baru = baru.strip()
+                        if not baru:
+                            st.error("Nama tidak boleh kosong.")
+                        elif ada_kembar([y["nama"] for y in milik if y["id"] != x["id"]] + [baru]):
+                            st.error("Nama itu sudah ada di bidang ini.")
+                        else:
+                            x["nama"] = baru
+                            selesai_simpan("Nama diubah.", edit_sub=None)
+                elif st.session_state.get("hapus_sub") == x["id"]:
+                    n_p = sum(1 for p in D["pekerja"] if p.get("subbidang") == x["id"])
+                    c1.write(f"Hapus **{x['nama']}**?" + (f" ({n_p} pegawai jadi tanpa sub bidang)" if n_p else ""))
+                    c3.button("Batal", key=f"bh_sub_{x['id']}", on_click=atur, args=("hapus_sub", None))
+                    if c2.button("Ya, hapus", key=f"yh_sub_{x['id']}", type="primary"):
+                        D["subbidang"] = [y for y in D["subbidang"] if y["id"] != x["id"]]
+                        for p in D["pekerja"]:
+                            if p.get("subbidang") == x["id"]:
+                                p.pop("subbidang", None)
+                        selesai_simpan("Dihapus.", hapus_sub=None)
+                else:
+                    c1.write(x["nama"])
+                    c2.button("Ubah nama", key=f"ub_sub_{x['id']}", on_click=atur, args=("edit_sub", x["id"]))
+                    c3.button("Hapus", key=f"hp_sub_{x['id']}", on_click=atur, args=("hapus_sub", x["id"]))
+        with st.form("tambah_sub", clear_on_submit=True):
+            f1, f2 = st.columns([2, 3])
+            induk = f1.selectbox("Di bawah bidang", list(peta), format_func=lambda i: peta[i])
+            nama = f2.text_input("Nama sub bidang", placeholder="Nama baru")
+            if st.form_submit_button("Tambah sub bidang"):
+                nama = nama.strip()
+                if not nama:
+                    st.error("Nama tidak boleh kosong.")
+                elif ada_kembar([y["nama"] for y in D["subbidang"] if y["bidang"] == induk] + [nama]):
+                    st.error("Nama itu sudah ada di bidang ini.")
+                else:
+                    D["subbidang"].append({"id": uuid.uuid4().hex[:8], "nama": nama, "bidang": induk})
                     selesai_simpan("Ditambahkan.")
 
 
@@ -1992,6 +2107,8 @@ if adalah_admin() and halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
+if adalah_admin() and halaman == "Sub bidang":
+    halaman_subbidang()
 if adalah_admin() and halaman == "Komponen data dukung":
     struktur = get_struktur()
     st.caption("Atur komponen dan isi tabel di menu Data dukung evaluasi. Setiap perubahan langsung "
