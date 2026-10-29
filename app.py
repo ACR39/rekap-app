@@ -192,6 +192,81 @@ def struktur_bawaan() -> list:
             for n, nama, baris in DUKUNG]
 
 
+def buat_excel_dukung(struktur: list, dk: dict) -> bytes:
+    """Tabel Data dukung evaluasi sebagai file Excel (kolom seperti tabel SAKIP)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Data dukung evaluasi"
+    tipis = Side(style="thin", color="000000")
+    garis = Border(left=tipis, right=tipis, top=tipis, bottom=tipis)
+    tengah = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    kiri_atas = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    kiri_tengah = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    judul = ["NO", "KOMPONEN SAKIP", "DATA - DATA PENDUKUNG", "BUKTI DUKUNG", "KETERANGAN", "LINK DATA DUKUNG"]
+    for c, (teks, lebar) in enumerate(zip(judul, [6, 24, 62, 42, 24, 42]), start=1):
+        sel = ws.cell(row=1, column=c, value=teks)
+        sel.font = Font(bold=True)
+        sel.alignment = tengah
+        sel.border = garis
+        ws.column_dimensions[get_column_letter(c)].width = lebar
+    ws.row_dimensions[1].height = 22
+    ws.freeze_panes = "A2"
+
+    baris_x = 2
+    for n, komp in enumerate(struktur, start=1):
+        if not komp["baris"]:
+            continue
+        awal = baris_x
+        for i, b in enumerate(komp["baris"], start=1):
+            tautan = (dk.get(b["id"], {}).get("link") or "").strip()
+            nilai = {3: f"{i}. {b['data']}", 4: b["bukti"] or None,
+                     5: dk.get(b["id"], {}).get("ket") or None}
+            for c in range(1, 7):
+                ws.cell(row=baris_x, column=c).border = garis
+            for c, v in nilai.items():
+                sel = ws.cell(row=baris_x, column=c, value=v)
+                sel.alignment = kiri_tengah if c == 3 else kiri_atas
+            sel_l = ws.cell(row=baris_x, column=6)
+            if tautan:
+                sel_l.value = f"{chr(96 + i) if i <= 26 else i}. {b['data']}"
+                if tautan.lower().startswith(("http://", "https://")):
+                    sel_l.hyperlink = tautan
+                    sel_l.font = Font(color="0563C1", underline="single")
+                else:
+                    sel_l.value = tautan
+            sel_l.alignment = kiri_atas
+            baris_x += 1
+        akhir = baris_x - 1
+        ws.cell(row=awal, column=1, value=n)
+        ws.cell(row=awal, column=2, value=komp["nama"].upper())
+        for c in (1, 2):
+            if akhir > awal:
+                ws.merge_cells(start_row=awal, start_column=c, end_row=akhir, end_column=c)
+            ws.cell(row=awal, column=c).alignment = Alignment(
+                horizontal="center" if c == 1 else "left", vertical="top", wrap_text=True)
+        for r in range(awal, akhir + 1):          # garis tepi sel yang digabung
+            for c in (1, 2):
+                ws.cell(row=r, column=c).border = garis
+        for c in range(1, 7):                      # baris pemisah antar komponen
+            ws.cell(row=baris_x, column=c).border = garis
+        ws.row_dimensions[baris_x].height = 8
+        baris_x += 1
+
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = "1:1"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def get_struktur() -> list:
     return D.get("dukung_struktur") or struktur_bawaan()
 
@@ -1395,6 +1470,13 @@ if halaman == DUKUNG_HAL:
         f'<div class="sc-val m">{len(semua_id) - ada_link}</div></div></div>',
         unsafe_allow_html=True)
     st.progress(ada_link / len(semua_id) if semua_id else 0.0)
+    try:
+        st.download_button("Unduh Excel", data=buat_excel_dukung(struktur, dk), icon=":material/download:",
+                           file_name=f"Data dukung evaluasi {date.today().isoformat()}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           key="unduh_dukung", disabled=not semua_id)
+    except ImportError:
+        st.warning("Tombol unduh Excel butuh paket openpyxl. Tambahkan baris `openpyxl` di requirements.txt.")
     if st.session_state.get("pesan_isian"):
         st.error(st.session_state.pesan_isian)
 
