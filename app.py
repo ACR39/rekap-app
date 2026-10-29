@@ -489,14 +489,44 @@ def cek_login():
         st.stop()
     if st.session_state.get("user"):
         return
-    st.markdown("<style>.block-container{max-width:440px !important;padding-top:4rem !important}"
-                "</style>", unsafe_allow_html=True)
-    st.markdown("### Rekap Isian Pekerja")
-    st.caption("Masuk dengan akun Anda.")
+    st.markdown("""
+<style>
+[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],[data-testid="stToolbar"],
+[data-testid="stHeader"]{display:none !important}
+[data-testid="stApp"]{background:linear-gradient(160deg,#eef4f0 0%,#f3f4f8 55%,#e6ecf5 100%)}
+.block-container{max-width:440px !important;padding:12vh 1.2rem 3rem !important}
+.lg-kepala{text-align:center;margin-bottom:1.4rem}
+.lg-kepala svg{filter:drop-shadow(0 6px 14px rgba(31,107,73,.28))}
+.lg-judul{font-size:1.55rem;font-weight:700;color:#0b1220;margin:.9rem 0 .2rem;letter-spacing:-.01em}
+.lg-sub{font-size:.88rem;color:#64748b}
+[data-testid="stForm"]{background:#fff;border:1px solid #e2e8f0 !important;border-radius:16px !important;
+  padding:1.6rem 1.5rem 1.4rem !important;box-shadow:0 10px 30px rgba(15,23,42,.08)}
+[data-testid="stForm"] label p{font-size:.82rem;font-weight:600;color:#334155}
+[data-testid="stForm"] input{border-radius:10px}
+[data-testid="stForm"] button[kind="secondaryFormSubmit"],[data-testid="stForm"] button[kind="primaryFormSubmit"]{
+  background:linear-gradient(135deg,#34a874,#1f6b49) !important;color:#fff !important;border:0 !important;
+  border-radius:10px !important;height:2.8rem;font-weight:600;margin-top:.4rem}
+[data-testid="stForm"] button[kind="secondaryFormSubmit"]:hover,[data-testid="stForm"] button[kind="primaryFormSubmit"]:hover{
+  filter:brightness(1.07)}
+[data-testid="stForm"] button:disabled{opacity:.5}
+.lg-kaki{text-align:center;font-size:.76rem;color:#94a3b8;margin-top:1.2rem}
+</style>
+<div class="lg-kepala">
+<svg width="56" height="56" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg"><defs>
+<linearGradient id="gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34a874"/>
+<stop offset="1" stop-color="#1f6b49"/></linearGradient></defs>
+<rect width="38" height="38" rx="10" fill="url(#gl)"/>
+<rect x="9" y="21" width="4.5" height="8" rx="1.2" fill="#fff" fill-opacity=".55"/>
+<rect x="16.7" y="16" width="4.5" height="13" rx="1.2" fill="#fff" fill-opacity=".8"/>
+<path d="M10 13.5l4 4 9-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"
+stroke-linejoin="round" transform="translate(5 -1)"/></svg>
+<div class="lg-judul">Rekap Isian Pekerja</div>
+<div class="lg-sub">Masuk untuk melanjutkan</div></div>
+""", unsafe_allow_html=True)
     terkunci = st.session_state.get("kunci_sampai", 0) - time.time()
     with st.form("login"):
-        uname = st.text_input("Username").strip().lower()
-        x = st.text_input("Kata sandi", type="password")
+        uname = st.text_input("Username", placeholder="Masukkan username").strip().lower()
+        x = st.text_input("Kata sandi", type="password", placeholder="Masukkan kata sandi")
         kirim = st.form_submit_button("Masuk", use_container_width=True, disabled=terkunci > 0)
     if terkunci > 0:
         st.error(f"Terlalu banyak percobaan. Coba lagi dalam {int(terkunci) + 1} detik.")
@@ -516,6 +546,7 @@ def cek_login():
             st.session_state.kunci_sampai = time.time() + KUNCI_DETIK
             st.rerun()
         st.error("Username atau kata sandi salah.")
+    st.markdown('<div class="lg-kaki">Lupa sandi? Hubungi admin aplikasi.</div>', unsafe_allow_html=True)
     st.stop()
 
 
