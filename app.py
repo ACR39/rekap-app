@@ -1107,63 +1107,53 @@ if halaman == "Sudah mengisi":
     if not D["pekerja"] or not D["kategori"]:
         st.info("Belum ada pekerja atau kategori. Tambahkan dulu pegawai di menu Master data.")
     else:
-        a, b, c = st.columns(3)
-        dari_s = a.date_input("Dari", value=AWAL_WFA, key="dari_sdh", format="DD/MM/YYYY")
-        sampai_s = b.date_input("Sampai", value=date.today(), key="sampai_sdh", format="DD/MM/YYYY")
-        nama_kat_s = {k["id"]: k["nama"] for k in D["kategori"]}
-        pilih_kat_s = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat_s.values()),
-                                  key="kat_sdh")
-        pks_s = pilih_pekerja("f_bidang_sdh", wfa=True)
-        st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan dilewati.")
+        if "tgl_sdh" not in st.session_state:
+            st.session_state.tgl_sdh = jumat_terakhir(date.today())
+        with st.container(key="kartu_filter"):
+            c1, c2, c3, c4 = st.columns([1, 4, 1, 3])
+            c1.button("‹", key="prev_sdh", help="Jumat sebelumnya (tanggal dikecualikan dilewati)",
+                      on_click=lambda: st.session_state.update(
+                          tgl_sdh=lompat(st.session_state.tgl_sdh, -1)))
+            c2.date_input("Tanggal (Jumat WFA)", key="tgl_sdh", format="DD/MM/YYYY",
+                          on_change=lambda: st.session_state.update(
+                              tgl_sdh=jumat_terakhir(st.session_state.tgl_sdh)))
+            c3.button("›", key="next_sdh", help="Jumat berikutnya (tanggal dikecualikan dilewati)",
+                      on_click=lambda: st.session_state.update(
+                          tgl_sdh=lompat(st.session_state.tgl_sdh, 1)))
+            c4.button("Jumat terakhir", key="last_sdh",
+                      on_click=lambda: st.session_state.update(
+                          tgl_sdh=jumat_terakhir(date.today())))
+            tgl_s_d = st.session_state.tgl_sdh
+            tgl_s = tgl_s_d.isoformat()
+            if tgl_s in D["libur"]:
+                ket_s = D["libur"][tgl_s]
+                st.info("Tanggal ini dikecualikan" + (f": {ket_s}" if ket_s else "") + ".")
+            pks_s = pilih_pekerja("f_bidang_sdh", wfa=True)
 
-        if dari_s > sampai_s:
-            st.error("Tanggal awal harus sebelum tanggal akhir.")
-        elif (sampai_s - dari_s).days + 1 > MAKS_HARI:
-            st.error("Rentang maksimal 2 tahun (731 hari).")
+        lengkap = [p for p in pks_s
+                   if all(terisi(tgl_s, k["id"], p["id"]) for k in D["kategori"])]
+        st.markdown(
+            '<div class="statcard"><div class="sc-kiri">'
+            '<span class="tag">WFA Jumat</span>'
+            f'<div class="sc-judul">{html.escape(fmt(tgl_s_d))}</div>'
+            f'<div class="sc-ket">{len(lengkap)} dari {len(pks_s)} pegawai sudah lengkap mengisi</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Sudah lengkap</div>'
+            f'<div class="sc-val g">{len(lengkap)}</div></div>'
+            '<div class="sc-stat"><div class="sc-lab">Belum lengkap</div>'
+            f'<div class="sc-val m">{len(pks_s) - len(lengkap)}</div></div></div>',
+            unsafe_allow_html=True)
+        st.progress(len(lengkap) / len(pks_s) if pks_s else 0.0)
+
+        if not lengkap:
+            st.info("Belum ada pegawai yang lengkap mengisi pada tanggal ini.")
         else:
-            kats_s = [k for k in D["kategori"]
-                      if pilih_kat_s == "Semua kategori" or k["nama"] == pilih_kat_s]
-            banyak_s = len(kats_s) > 1
-            per_s = {}      # id pekerja -> daftar (tanggal, nama kategori, id kategori)
-            tanggal_s = set()
-            d = dari_s
-            while d <= sampai_s:
-                t = d.isoformat()
-                if d.weekday() == 4 and t not in D["libur"]:
-                    for k in kats_s:
-                        for p in pks_s:
-                            if terisi(t, k["id"], p["id"]):
-                                per_s.setdefault(p["id"], []).append((d, k["nama"], k["id"]))
-                                tanggal_s.add(t)
-                d += timedelta(days=1)
-
-            urut_s = sorted((p for p in pks_s if p["id"] in per_s),
-                            key=lambda p: (-len(per_s[p["id"]]), nama_lengkap(p).lower()))
-            if not urut_s:
-                st.info("Belum ada yang mengisi pada rentang ini.")
-            else:
-                jumlah_s = sum(len(v) for v in per_s.values())
-                st.metric("Pekerja yang sudah mengisi", len(urut_s),
-                          help=f"{jumlah_s} isian di {len(tanggal_s)} tanggal")
-                st.caption(f"{jumlah_s} isian sudah terisi di {len(tanggal_s)} tanggal.")
-
-                def label_s(x):
-                    return fmt(x[0]) + (f" ({x[1]})" if banyak_s else "")
-
-                for judul, anggota in kelompok(urut_s):
+            with st.container(key="kartu_tabel"):
+                for judul, anggota in kelompok(lengkap):
                     if judul:
                         judul_bidang(judul, len(anggota))
-                    for p in anggota:
-                        with st.container(border=True):
-                            st.markdown(
-                                f'<div class="nama">{html.escape(nama_lengkap(p))} '
-                                f'<span class="jml">· {len(per_s[p["id"]])} tanggal</span></div>',
-                                unsafe_allow_html=True)
-                            with st.container(horizontal=True, gap="small"):
-                                for x in per_s[p["id"]]:
-                                    st.button(label_s(x), key=f"sdh_{p['id']}_{x[0].isoformat()}_{x[2]}",
-                                              on_click=cb_lompat, args=(x[0].isoformat(), p["id"]),
-                                              help="Buka tanggal ini di Per tanggal")
+                    for p in sorted(anggota, key=lambda p: nama_lengkap(p).lower()):
+                        st.markdown(f'<div class="peg">{html.escape(nama_lengkap(p))}</div>',
+                                    unsafe_allow_html=True)
 
 # ------------------------------------------------------------- rekap cuti dan DL
 if halaman == "Rekap cuti dan DL":
