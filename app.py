@@ -185,6 +185,17 @@ DUKUNG = [
          "tindak lanjutnya", ""),
     ]),
 ]
+def struktur_bawaan() -> list:
+    """Struktur awal Data dukung evaluasi (dipakai selama belum pernah diedit)."""
+    return [{"id": f"s{n}", "nama": nama,
+             "baris": [{"id": f"{n}.{i}", "data": d, "bukti": b} for i, (d, b) in enumerate(baris, start=1)]}
+            for n, nama, baris in DUKUNG]
+
+
+def get_struktur() -> list:
+    return D.get("dukung_struktur") or struktur_bawaan()
+
+
 ROMAWI = {1: "I", 2: "II", 3: "III", 4: "IV"}
 BULAN_TW = {1: "Januari - Maret", 2: "April - Juni", 3: "Juli - September", 4: "Oktober - Desember"}
 FILE_LOKAL = os.environ.get("REKAP_DATA_FILE", "data.json")
@@ -235,7 +246,8 @@ def data_kosong() -> dict:
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
-        "dukung": {},    # {"1.1": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
+        "dukung": {},    # {"<id baris>": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
+        "dukung_struktur": [],  # [{"id","nama","baris":[{"id","data","bukti"}]}]; kosong = struktur bawaan
     }
 
 
@@ -572,6 +584,115 @@ def cb_tw_ket(kunci_tw: str, pid: str, kunci_widget: str):
         st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
 
 
+def ubah_struktur(fn, hapus_id: list | None = None):
+    """Ubah struktur Data dukung evaluasi lalu langsung simpan. Gagal/bentrok: dikembalikan."""
+    data = st.session_state.data
+    lama = copy.deepcopy(data.get("dukung_struktur"))
+    lama_dk = copy.deepcopy(data.get("dukung", {}))
+    baru = copy.deepcopy(lama) if lama else struktur_bawaan()
+    fn(baru)
+    data["dukung_struktur"] = baru
+    for rid in hapus_id or []:
+        data.get("dukung", {}).pop(rid, None)
+    try:
+        simpan(data)
+        st.session_state.pesan_isian = None
+    except Bentrok:
+        muat_ke_sesi()
+        st.session_state.pesan_isian = ("Data sudah diubah orang lain. Data terbaru sudah "
+                                        "dimuat, silakan ulangi.")
+    except Exception as e:
+        data["dukung_struktur"] = lama or []
+        data["dukung"] = lama_dk
+        st.session_state.pesan_isian = f"Gagal menyimpan: {e}"
+    st.session_state.pop("dk_konfirm", None)
+
+
+def _cari(struktur: list, sid: str):
+    return next((k for k in struktur if k["id"] == sid), None)
+
+
+def _geser(daftar: list, idx: int, arah: int):
+    j = idx + arah
+    if 0 <= j < len(daftar):
+        daftar[idx], daftar[j] = daftar[j], daftar[idx]
+
+
+def cb_ds_nama(sid: str, kw: str):
+    teks = " ".join(str(st.session_state.get(kw, "")).split())
+    if not teks:
+        st.session_state[kw] = (_cari(get_struktur(), sid) or {}).get("nama", "")
+        return
+    def fn(st_):
+        k = _cari(st_, sid)
+        if k:
+            k["nama"] = teks
+    ubah_struktur(fn)
+
+
+def cb_ds_baris(sid: str, rid: str, kolom: str, kw: str):
+    teks = " ".join(str(st.session_state.get(kw, "")).split())
+    if kolom == "data" and not teks:      # data pendukung wajib terisi
+        k = _cari(get_struktur(), sid) or {"baris": []}
+        st.session_state[kw] = next((b["data"] for b in k["baris"] if b["id"] == rid), "")
+        return
+    def fn(st_):
+        k = _cari(st_, sid)
+        b = next((b for b in (k or {"baris": []})["baris"] if b["id"] == rid), None)
+        if b:
+            b[kolom] = teks
+    ubah_struktur(fn)
+
+
+def cb_ds_tambah_k():
+    ubah_struktur(lambda st_: st_.append(
+        {"id": "s" + uuid.uuid4().hex[:8], "nama": f"Komponen baru {len(st_) + 1}", "baris": []}))
+
+
+def cb_ds_geser_k(sid: str, arah: int):
+    def fn(st_):
+        idx = next((i for i, k in enumerate(st_) if k["id"] == sid), None)
+        if idx is not None:
+            _geser(st_, idx, arah)
+    ubah_struktur(fn)
+
+
+def cb_ds_hapus_k(sid: str):
+    k = _cari(get_struktur(), sid)
+    rids = [b["id"] for b in (k or {"baris": []})["baris"]]
+    ubah_struktur(lambda st_: st_.__setitem__(slice(None), [x for x in st_ if x["id"] != sid]), rids)
+
+
+def cb_ds_tambah_b(sid: str):
+    def fn(st_):
+        k = _cari(st_, sid)
+        if k:
+            k["baris"].append({"id": "r" + uuid.uuid4().hex[:8], "data": "Data pendukung baru", "bukti": ""})
+    ubah_struktur(fn)
+
+
+def cb_ds_geser_b(sid: str, rid: str, arah: int):
+    def fn(st_):
+        k = _cari(st_, sid)
+        if k:
+            idx = next((i for i, b in enumerate(k["baris"]) if b["id"] == rid), None)
+            if idx is not None:
+                _geser(k["baris"], idx, arah)
+    ubah_struktur(fn)
+
+
+def cb_ds_hapus_b(sid: str, rid: str):
+    def fn(st_):
+        k = _cari(st_, sid)
+        if k:
+            k["baris"] = [b for b in k["baris"] if b["id"] != rid]
+    ubah_struktur(fn, [rid])
+
+
+def cb_ds_konfirm(kunci: str):
+    st.session_state.dk_konfirm = kunci
+
+
 def cb_dukung(kid: str, bidang_isi: str, kunci_widget: str):
     """Simpan Keterangan atau Link satu baris Data dukung evaluasi."""
     data = st.session_state.data
@@ -720,7 +841,7 @@ if not cfg_github():
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
-MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Cadangan dan pindah data"]
+MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
 HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + MASTER
@@ -729,7 +850,7 @@ if st.session_state.get("halaman") not in HALAMAN:
 halaman = st.session_state.halaman
 IKON = {"Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Kategori": "sell",
-        "Tanggal dikecualikan": "event_busy", "Cadangan dan pindah data": "backup"}
+        "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
         '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
         '<stop offset="0" stop-color="#34a874"/><stop offset="1" stop-color="#1f6b49"/></linearGradient></defs>'
@@ -1261,7 +1382,8 @@ if halaman == "Sudah mengisi":
 # ------------------------------------------------------------ data dukung evaluasi
 if halaman == DUKUNG_HAL:
     dk = D.get("dukung", {})
-    semua_id = [f"{n}.{i}" for n, _, baris_ in DUKUNG for i in range(1, len(baris_) + 1)]
+    struktur = get_struktur()
+    semua_id = [b["id"] for k in struktur for b in k["baris"]]
     ada_link = sum(bool(dk.get(k, {}).get("link")) for k in semua_id)
     st.markdown(
         '<div class="statcard"><div class="sc-kiri"><span class="tag">SAKIP</span>'
@@ -1272,7 +1394,7 @@ if halaman == DUKUNG_HAL:
         '<div class="sc-stat"><div class="sc-lab">Belum</div>'
         f'<div class="sc-val m">{len(semua_id) - ada_link}</div></div></div>',
         unsafe_allow_html=True)
-    st.progress(ada_link / len(semua_id))
+    st.progress(ada_link / len(semua_id) if semua_id else 0.0)
     if st.session_state.get("pesan_isian"):
         st.error(st.session_state.pesan_isian)
 
@@ -1282,10 +1404,14 @@ if halaman == DUKUNG_HAL:
         for kol, judul in zip(kep, ["No", "Komponen SAKIP", "Data - data pendukung", "Bukti dukung",
                                     "Keterangan", "Link data dukung"]):
             kol.markdown(f'<div class="thead-s">{html.escape(judul)}</div>', unsafe_allow_html=True)
-        for n_komp, nama_komp, baris_dk in DUKUNG:
+        if not semua_id:
+            st.info("Belum ada data dukung. Tambahkan di Master data > Komponen data dukung.")
+        for n_komp, komp in enumerate(struktur, start=1):
+            nama_komp, baris_dk = komp["nama"], [(b["id"], b["data"], b["bukti"]) for b in komp["baris"]]
+            if not baris_dk:
+                continue
             st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
-            for i, (data_p, bukti) in enumerate(baris_dk, start=1):
-                kid = f"{n_komp}.{i}"
+            for i, (kid, data_p, bukti) in enumerate(baris_dk, start=1):
                 b = st.columns(lebar_dk, vertical_alignment="center")
                 if i == 1:
                     b[0].markdown(f"**{n_komp}**")
@@ -1668,6 +1794,54 @@ if halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
+if halaman == "Komponen data dukung":
+    struktur = get_struktur()
+    st.caption("Atur komponen dan isi tabel di menu Data dukung evaluasi. Setiap perubahan langsung "
+               "tersimpan: ketik lalu tekan Enter (nama komponen) atau klik di luar kolom / tekan Ctrl+Enter "
+               "(isi tabel). Keterangan dan link yang sudah "
+               "diisi ikut terhapus kalau barisnya dihapus.")
+    if st.session_state.get("pesan_isian"):
+        st.error(st.session_state.pesan_isian)
+    konfirm = st.session_state.get("dk_konfirm")
+    for n, k in enumerate(struktur, start=1):
+        sid = k["id"]
+        with st.container(border=True):
+            h = st.columns([6, 0.8, 0.8, 1.6], vertical_alignment="bottom")
+            kw = f"dk_nama_{sid}"
+            h[0].text_input(f"Komponen {n}", value=k["nama"], key=kw, on_change=cb_ds_nama, args=(sid, kw))
+            h[1].button("↑", key=f"dk_ku_{sid}", on_click=cb_ds_geser_k, args=(sid, -1),
+                        disabled=n == 1, help="Naikkan komponen", use_container_width=True)
+            h[2].button("↓", key=f"dk_kd_{sid}", on_click=cb_ds_geser_k, args=(sid, 1),
+                        disabled=n == len(struktur), help="Turunkan komponen", use_container_width=True)
+            if konfirm == f"k:{sid}":
+                h[3].button("Ya, hapus", key=f"dk_kh2_{sid}", type="primary", on_click=cb_ds_hapus_k,
+                            args=(sid,), use_container_width=True)
+            else:
+                h[3].button("Hapus komponen", key=f"dk_kh_{sid}", on_click=cb_ds_konfirm,
+                            args=(f"k:{sid}",), use_container_width=True)
+            for i, b in enumerate(k["baris"], start=1):
+                rid = b["id"]
+                r = st.columns([0.4, 4.2, 3.2, 0.7, 0.7, 1.4], vertical_alignment="center")
+                r[0].markdown(f"**{i}.**")
+                kd, kb = f"dk_d_{sid}_{rid}", f"dk_b_{sid}_{rid}"
+                r[1].text_area("Data pendukung", value=b["data"], key=kd, label_visibility="collapsed",
+                               height=80, on_change=cb_ds_baris, args=(sid, rid, "data", kd))
+                r[2].text_area("Bukti dukung", value=b["bukti"], key=kb, label_visibility="collapsed",
+                               height=80, placeholder="Bukti dukung (boleh kosong)",
+                               on_change=cb_ds_baris, args=(sid, rid, "bukti", kb))
+                r[3].button("↑", key=f"dk_bu_{rid}", on_click=cb_ds_geser_b, args=(sid, rid, -1),
+                            disabled=i == 1, help="Naikkan baris", use_container_width=True)
+                r[4].button("↓", key=f"dk_bd_{rid}", on_click=cb_ds_geser_b, args=(sid, rid, 1),
+                            disabled=i == len(k["baris"]), help="Turunkan baris", use_container_width=True)
+                if konfirm == f"b:{rid}":
+                    r[5].button("Ya, hapus", key=f"dk_bh2_{rid}", type="primary", on_click=cb_ds_hapus_b,
+                                args=(sid, rid), use_container_width=True)
+                else:
+                    r[5].button("Hapus", key=f"dk_bh_{rid}", on_click=cb_ds_konfirm,
+                                args=(f"b:{rid}",), use_container_width=True)
+            st.button("+ Tambah data pendukung", key=f"dk_bt_{sid}", on_click=cb_ds_tambah_b, args=(sid,))
+    st.button("+ Tambah komponen", key="dk_kt", type="primary", on_click=cb_ds_tambah_k)
+
 if halaman == "Tanggal dikecualikan":
     daftar_libur()
 if halaman == "Cadangan dan pindah data":
