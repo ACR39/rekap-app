@@ -7,9 +7,12 @@ GitHub tidak ada, aplikasi memakai file lokal untuk uji coba.
 """
 import base64
 import copy
+import hashlib
+import hmac
 import html
 import json
 import os
+import time
 import uuid
 from datetime import date, timedelta
 
@@ -373,12 +376,12 @@ def muat():
     return data_kosong(), None
 
 
-def simpan(data: dict):
+def simpan(data: dict, pesan: str = "Perbarui rekap isian"):
     c = cfg_github()
     teks = json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
     if c:
         body = {
-            "message": "Perbarui rekap isian",
+            "message": pesan,
             "content": base64.b64encode(teks.encode("utf-8")).decode("ascii"),
             "branch": c["branch"],
         }
@@ -402,8 +405,9 @@ def muat_ke_sesi():
 
 def commit(pesan_ok: str | None = None) -> bool:
     """Simpan st.session_state.data. Tampilkan hasilnya ke pengguna."""
+    pesan = f"{pesan_ok or 'Perbarui rekap isian'} (oleh {pengguna_nama()})"
     try:
-        simpan(st.session_state.data)
+        simpan(st.session_state.data, pesan)
     except Bentrok:
         muat_ke_sesi()
         st.error("Data sudah diubah orang lain. Data terbaru sudah dimuat, "
@@ -418,24 +422,104 @@ def commit(pesan_ok: str | None = None) -> bool:
 
 
 # -------------------------------------------------------------------- akses
-def cek_sandi():
+# Akun disimpan di Streamlit Secrets, satu bagian per pengguna:
+#   [users.budi]
+#   nama = "Budi Santoso"
+#   peran = "admin"            # "admin" atau "pengisi"
+#   password_hash = "pbkdf2$..."   # buat dengan buat_hash.py
+# Kalau tidak ada bagian [users], aplikasi memakai kata sandi tunggal lama
+# (secret "password") atau, kalau itu juga tidak ada, tanpa login (uji coba).
+PERAN = ("admin", "pengisi")
+MAKS_GAGAL = 5
+KUNCI_DETIK = 60
+
+
+def _akun() -> dict:
     try:
-        sandi = st.secrets["password"]
+        u = st.secrets["users"]
+        return {str(k): dict(v) for k, v in u.items()}
     except Exception:
+        return {}
+
+
+def cocok_hash(sandi: str, tersimpan: str) -> bool:
+    """Cocokkan sandi dengan hash berformat pbkdf2$iterasi$garam_hex$hash_hex."""
+    try:
+        skema, iterasi, garam, h = str(tersimpan).split("$")
+        if skema != "pbkdf2":
+            return False
+        calon = hashlib.pbkdf2_hmac("sha256", sandi.encode("utf-8"),
+                                    bytes.fromhex(garam), int(iterasi))
+        return hmac.compare_digest(calon.hex(), h)
+    except Exception:
+        return False
+
+
+def pengguna_nama() -> str:
+    u = st.session_state.get("user")
+    return u["username"] if u else "tamu"
+
+
+def adalah_admin() -> bool:
+    u = st.session_state.get("user")
+    return u is None or u.get("peran") == "admin"   # tanpa login = mode uji coba
+
+
+def keluar():
+    for k in ("user", "masuk", "data", "sha"):
+        st.session_state.pop(k, None)
+
+
+def cek_login():
+    akun = _akun()
+    if not akun:                       # mode lama / uji coba
+        try:
+            sandi = st.secrets["password"]
+        except Exception:
+            return
+        if st.session_state.get("masuk"):
+            return
+        with st.form("login"):
+            x = st.text_input("Kata sandi", type="password")
+            if st.form_submit_button("Masuk"):
+                if hmac.compare_digest(x, str(sandi)):
+                    st.session_state.masuk = True
+                    st.rerun()
+                st.error("Kata sandi salah.")
+        st.stop()
+    if st.session_state.get("user"):
         return
-    if st.session_state.get("masuk"):
-        return
+    st.markdown("<style>.block-container{max-width:440px !important;padding-top:4rem !important}"
+                "</style>", unsafe_allow_html=True)
+    st.markdown("### Rekap Isian Pekerja")
+    st.caption("Masuk dengan akun Anda.")
+    terkunci = st.session_state.get("kunci_sampai", 0) - time.time()
     with st.form("login"):
+        uname = st.text_input("Username").strip().lower()
         x = st.text_input("Kata sandi", type="password")
-        if st.form_submit_button("Masuk"):
-            if x == sandi:
-                st.session_state.masuk = True
-                st.rerun()
-            st.error("Kata sandi salah.")
+        kirim = st.form_submit_button("Masuk", use_container_width=True, disabled=terkunci > 0)
+    if terkunci > 0:
+        st.error(f"Terlalu banyak percobaan. Coba lagi dalam {int(terkunci) + 1} detik.")
+    elif kirim:
+        a = akun.get(uname)
+        # hitung hash walau username tidak ada, supaya waktu responsnya sama
+        ok = cocok_hash(x, a["password_hash"] if a and "password_hash" in a
+                        else "pbkdf2$1$00$00")
+        if a and ok and a.get("peran", "pengisi") in PERAN:
+            st.session_state.user = {"username": uname, "nama": a.get("nama", uname),
+                                     "peran": a.get("peran", "pengisi")}
+            st.session_state.gagal = 0
+            st.rerun()
+        st.session_state.gagal = st.session_state.get("gagal", 0) + 1
+        if st.session_state.gagal >= MAKS_GAGAL:
+            st.session_state.gagal = 0
+            st.session_state.kunci_sampai = time.time() + KUNCI_DETIK
+            st.rerun()
+        st.error("Username atau kata sandi salah.")
     st.stop()
 
 
-cek_sandi()
+cek_login()
 
 if "data" not in st.session_state:
     try:
@@ -919,7 +1003,7 @@ UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
-HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + MASTER
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + (MASTER if adalah_admin() else [])
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
@@ -954,9 +1038,10 @@ with st.sidebar:
         for h in TRIWULAN:
             tombol_nav(h)
     tombol_nav(DUKUNG_HAL)
-    with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
-        for h in MASTER:
-            tombol_nav(h)
+    if adalah_admin():
+        with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
+            for h in MASTER:
+                tombol_nav(h)
     st.markdown('<div class="sp"></div>', unsafe_allow_html=True)
     if st.button("Muat ulang", key="nav_muat", use_container_width=True, icon=":material/refresh:",
                  help="Ambil data terbaru dari penyimpanan"):
@@ -964,6 +1049,12 @@ with st.sidebar:
         st.rerun()
     if cfg_github():
         st.caption(f"Data: {cfg_github()['repo']}")
+    if st.session_state.get("user"):
+        u = st.session_state.user
+        st.markdown('<div class="sp"></div>', unsafe_allow_html=True)
+        st.caption(f"Masuk sebagai **{u['nama']}** ({u['peran']})")
+        st.button("Keluar", key="nav_keluar", use_container_width=True,
+                  icon=":material/logout:", on_click=keluar)
 st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else "AKTIVITAS WFA")))}</div><div class="judul-hal">{halaman}</div>',
             unsafe_allow_html=True)
 
@@ -1870,13 +1961,13 @@ def cadangan():
                         selesai_simpan("Data dimuat.")
 
 
-if halaman == "Pegawai":
+if adalah_admin() and halaman == "Pegawai":
     halaman_pegawai()
-if halaman == "Bidang":
+if adalah_admin() and halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
-if halaman == "Komponen data dukung":
+if adalah_admin() and halaman == "Komponen data dukung":
     struktur = get_struktur()
     st.caption("Atur komponen dan isi tabel di menu Data dukung evaluasi. Setiap perubahan langsung "
                "tersimpan: ketik lalu tekan Enter (nama komponen) atau klik di luar kolom / tekan Ctrl+Enter "
@@ -1924,7 +2015,7 @@ if halaman == "Komponen data dukung":
             st.button("+ Tambah data pendukung", key=f"dk_bt_{sid}", on_click=cb_ds_tambah_b, args=(sid,))
     st.button("+ Tambah komponen", key="dk_kt", type="primary", on_click=cb_ds_tambah_k)
 
-if halaman == "Tanggal dikecualikan":
+if adalah_admin() and halaman == "Tanggal dikecualikan":
     daftar_libur()
-if halaman == "Cadangan dan pindah data":
+if adalah_admin() and halaman == "Cadangan dan pindah data":
     cadangan()
