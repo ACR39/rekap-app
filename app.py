@@ -569,7 +569,7 @@ def cek_login():
     st.markdown("""
 <style>
 [data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],[data-testid="stToolbar"],
-[data-testid="stHeader"]{display:none !important}
+[data-testid="stHeader"]{background:transparent !important}
 [data-testid="stApp"]{background:linear-gradient(160deg,#eef4f0 0%,#f3f4f8 55%,#e6ecf5 100%)}
 .block-container{max-width:440px !important;padding:12vh 1.2rem 3rem !important}
 .lg-kepala{text-align:center;margin-bottom:1.4rem}
@@ -2268,3 +2268,4 @@ if adalah_admin() and halaman == "Tanggal dikecualikan":
     daftar_libur()
 if adalah_admin() and halaman == "Cadangan dan pindah data":
     cadangan()
+
