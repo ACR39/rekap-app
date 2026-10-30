@@ -24,9 +24,20 @@ st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="📋", layout="w
 
 st.markdown("""
 <style>
-.block-container{padding:3.4rem 2rem 4rem;max-width:1600px}
+.block-container{padding:2.6rem 2rem 4rem;max-width:1600px}
+[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stStatusWidget"]{display:none !important}
+[data-testid="stHeader"]{background:transparent}
 .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;color:#2b7a57}
-.judul-hal{font-size:1.6rem;font-weight:700;color:#111827;margin:.1rem 0 1rem}
+.judul-hal{font-size:1.6rem;font-weight:700;color:#111827;margin:.1rem 0 .15rem;letter-spacing:-.01em}
+.kepala{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  background:#fff;border:1px solid #e5e7eb;border-left:4px solid #2b7a57;border-radius:12px;
+  padding:1rem 1.3rem;margin:0 0 1.4rem;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+.kepala .desk{font-size:.86rem;color:#64748b;max-width:62ch}
+.pengguna{display:flex;align-items:center;gap:.6rem;background:#f1f5f9;border-radius:999px;padding:.35rem .9rem .35rem .4rem}
+.pengguna .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#34a874,#1f6b49);
+  color:#fff;font-weight:700;font-size:.85rem;display:flex;align-items:center;justify-content:center}
+.pengguna .nm{font-size:.84rem;font-weight:600;color:#0f172a;line-height:1.15}
+.pengguna .pr{font-size:.7rem;color:#64748b;text-transform:capitalize}
 [data-testid="stSidebar"]{background:#0b1220}
 [data-testid="stSidebar"] *{color:#e5e7eb}
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] *{color:#94a3b8}
@@ -1126,7 +1137,31 @@ with st.sidebar:
         st.caption(f"Masuk sebagai **{u['nama']}** ({u['peran']})")
         st.button("Keluar", key="nav_keluar", use_container_width=True,
                   icon=":material/logout:", on_click=keluar)
-st.markdown(f'<div class="eyebrow">{"MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else "AKTIVITAS WFA")))}</div><div class="judul-hal">{halaman}</div>',
+DESKRIPSI = {
+    "Beranda": "Ringkasan keterisian laporan WFA dan triwulan.",
+    "Per tanggal": "Catat dan lihat isian tiap pegawai pada tanggal tertentu.",
+    "Belum mengisi": "Daftar pegawai yang belum melengkapi isian pada rentang tanggal.",
+    "Sudah mengisi": "Daftar pegawai yang lengkap mengisi di setiap Jumat dalam rentang tanggal.",
+    "Rekap cuti dan DL": "Rekap tanggal cuti dan dinas luar per pegawai.",
+    "Isian triwulan": "Tandai kelengkapan isian triwulan tiap pegawai.",
+    DUKUNG_HAL: "Data pendukung, bukti dukung, dan tautan untuk evaluasi SAKIP.",
+    "Pegawai": "Kelola data pegawai, bidang, dan sub bidangnya.",
+    "Bidang": "Kelola daftar bidang.",
+    "Sub bidang": "Kelola sub bidang di bawah tiap bidang.",
+    "Tanggal dikecualikan": "Hari libur atau tanggal yang tidak dihitung dalam rekap.",
+    "Komponen data dukung": "Atur komponen dan baris pada tabel data dukung evaluasi.",
+    "Cadangan dan pindah data": "Unduh cadangan data atau muat data dari berkas.",
+}
+_grup = ("MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else
+         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else "AKTIVITAS WFA"))))
+_u = st.session_state.get("user")
+_chip = ""
+if _u:
+    _chip = (f'<div class="pengguna"><div class="av">{html.escape(_u["nama"][:1].upper())}</div><div>'
+             f'<div class="nm">{html.escape(_u["nama"])}</div><div class="pr">{html.escape(_u["peran"])}</div></div></div>')
+st.markdown(f'<div class="kepala"><div><div class="eyebrow">{_grup}</div>'
+            f'<div class="judul-hal">{html.escape(halaman)}</div>'
+            f'<div class="desk">{html.escape(DESKRIPSI.get(halaman, ""))}</div></div>{_chip}</div>',
             unsafe_allow_html=True)
 
 def pilih_periode(sufiks: str, dengan_tw: bool):
