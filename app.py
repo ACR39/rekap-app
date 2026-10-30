@@ -14,6 +14,7 @@ import json
 import os
 import time
 import uuid
+import base64 as _b64
 from datetime import date, timedelta
 
 import pandas as pd
@@ -477,9 +478,61 @@ def adalah_admin() -> bool:
     return u is None or u.get("peran") == "admin"   # tanpa login = mode uji coba
 
 
+COOKIE = "rekap_sesi"
+
+
+def _jam_sesi() -> float:
+    try:
+        return float(st.secrets.get("sesi_jam", 8))
+    except Exception:
+        return 8.0
+
+
+def _kunci_sesi(a: dict) -> bytes:
+    """Kunci penanda tangan token. Ikut berubah kalau sandi pengguna diganti, jadi sesi lama batal."""
+    try:
+        ekstra = str(st.secrets.get("sesi_kunci", ""))
+    except Exception:
+        ekstra = ""
+    return f"{ekstra}|{a.get('password_hash', '')}|{cfg_github() and cfg_github()['token'] or ''}".encode()
+
+
+def buat_token(uname: str, a: dict) -> str:
+    isi = _b64.urlsafe_b64encode(f"{uname}|{int(time.time() + _jam_sesi() * 3600)}".encode()).decode().rstrip("=")
+    tanda = hmac.new(_kunci_sesi(a), isi.encode(), hashlib.sha256).hexdigest()
+    return f"{isi}.{tanda}"
+
+
+def baca_token(token: str, akun: dict):
+    """Kembalikan username kalau token sah dan belum kedaluwarsa, kalau tidak None."""
+    try:
+        isi, tanda = token.split(".")
+        uname, exp = _b64.urlsafe_b64decode(isi + "=" * (-len(isi) % 4)).decode().split("|")
+        a = akun.get(uname)
+        if not a or int(exp) < time.time():
+            return None
+        benar = hmac.new(_kunci_sesi(a), isi.encode(), hashlib.sha256).hexdigest()
+        return uname if hmac.compare_digest(benar, tanda) else None
+    except Exception:
+        return None
+
+
+def js_cookie(nilai: str, detik: int):
+    """Pasang (atau hapus, detik=0) cookie sesi di peramban lewat komponen tak terlihat."""
+    import streamlit.components.v1 as components
+    components.html(
+        f"""<script>
+        const d = window.parent.document;
+        const aman = window.parent.location.protocol === 'https:' ? '; Secure' : '';
+        d.cookie = "{COOKIE}={nilai}; Max-Age={detik}; Path=/; SameSite=Lax" + aman;
+        </script>""", height=0)
+
+
 def keluar():
     for k in ("user", "masuk", "data", "sha"):
         st.session_state.pop(k, None)
+    st.session_state.hapus_cookie = True
+    st.session_state.cookie_dicek = True
 
 
 def cek_login():
@@ -501,6 +554,18 @@ def cek_login():
         st.stop()
     if st.session_state.get("user"):
         return
+    if st.session_state.pop("hapus_cookie", False):
+        js_cookie("", 0)
+    if not st.session_state.get("cookie_dicek"):          # pulihkan sesi setelah refresh
+        st.session_state.cookie_dicek = True
+        try:
+            u = baca_token(st.context.cookies.get(COOKIE, ""), akun)
+        except Exception:
+            u = None
+        if u:
+            st.session_state.user = {"username": u, "nama": akun[u].get("nama", u),
+                                     "peran": akun[u].get("peran", "pengisi")}
+            st.rerun()
     st.markdown("""
 <style>
 [data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],[data-testid="stToolbar"],
@@ -551,6 +616,7 @@ stroke-linejoin="round" transform="translate(5 -1)"/></svg>
             st.session_state.user = {"username": uname, "nama": a.get("nama", uname),
                                      "peran": a.get("peran", "pengisi")}
             st.session_state.gagal = 0
+            st.session_state.pasang_cookie = buat_token(uname, a)
             st.rerun()
         st.session_state.gagal = st.session_state.get("gagal", 0) + 1
         if st.session_state.gagal >= MAKS_GAGAL:
@@ -563,6 +629,8 @@ stroke-linejoin="round" transform="translate(5 -1)"/></svg>
 
 
 cek_login()
+if st.session_state.get("pasang_cookie"):
+    js_cookie(st.session_state.pop("pasang_cookie"), int(_jam_sesi() * 3600))
 
 if "data" not in st.session_state:
     try:
@@ -1434,6 +1502,9 @@ if halaman == "Per tanggal":
 
             kats = D["kategori"]
             pks = pilih_pekerja("f_bidang_tgl", per_nama=True, wfa=True)
+            tampil_semua_tgl = st.toggle("Tampilkan tombol Tandai semua", value=False,
+                                         key="tgl_tampil_semua",
+                                         help="Bawaannya disembunyikan agar tidak terketuk tanpa sengaja.")
         status = lambda kid, pid: terisi(tgl, kid, pid)  # noqa: E731
 
         pks_hitung = [p for p in pks if not absen_status(tgl, p["id"])]
@@ -1476,8 +1547,9 @@ if halaman == "Per tanggal":
             for i, k in enumerate(kats):
                 kepala[geser + i].markdown(f'<div class="thead-s">{html.escape(k["nama"])}</div>',
                                            unsafe_allow_html=True)
-                kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
-                                         args=(tgl, k["id"], [p["id"] for p in pks_hitung]))
+                if tampil_semua_tgl:
+                    kepala[geser + i].button("Tandai semua", key=f"all_{tgl}_{k['id']}", on_click=cb_semua,
+                                             args=(tgl, k["id"], [p["id"] for p in pks_hitung]))
             for judul, anggota in kelompok(pks):
                 if judul:
                     judul_bidang(judul, len(anggota))
