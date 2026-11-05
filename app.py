@@ -27,7 +27,8 @@ st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="📋", layout="w
 st.markdown("""
 <style>
 .block-container{padding:2.6rem 2rem 4rem;max-width:1600px}
-[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stStatusWidget"]{display:none !important}
+[data-testid="stToolbarActions"],[data-testid="stAppDeployButton"],[data-testid="stMainMenu"],
+[data-testid="stDecoration"],[data-testid="stStatusWidget"]{display:none !important}
 [data-testid="stHeader"]{background:transparent}
 .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;color:#2b7a57}
 .judul-hal{font-size:1.6rem;font-weight:700;color:#111827;margin:.1rem 0 .15rem;letter-spacing:-.01em}
