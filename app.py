@@ -12,6 +12,7 @@ import hmac
 import html
 import json
 import os
+import re
 import time
 import uuid
 import base64 as _b64
@@ -698,6 +699,16 @@ def ikut_wfa(p: dict) -> bool:
 
 
 JK_NAMA = {"L": "Laki-laki", "P": "Perempuan"}
+STATUS_PEG = ["PNS", "PPPK"]
+
+
+def status_peg(p: dict) -> str:
+    """PNS atau PPPK. Kalau belum diisi, ditebak dari golongan (golongan PPPK -> PPPK); kalau tidak bisa, kosong."""
+    st_ = p.get("status_pegawai")
+    if st_ in STATUS_PEG:
+        return st_
+    gol = p.get("golongan", "")
+    return "" if not gol else ("PPPK" if gol.startswith("PPPK") else "PNS")
 
 
 def ke_tgl(v):
@@ -1281,11 +1292,14 @@ if halaman == STAT_HAL:
         tahun_ke = [ke_tgl(p.get("tgl_pensiun")).year for p in D["pekerja"] if ke_tgl(p.get("tgl_pensiun"))]
         tahun_opsi = list(range(min(tahun_dari + [tahun_ini]), max(tahun_ke + [tahun_ini]) + 1))
         with st.container(key="kartu_filter"):
-            f1, f2, f3 = st.columns([1, 1.4, 3])
+            f1, f2, f2b, f3 = st.columns([1, 1.4, 1.5, 3])
             th = f1.selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(tahun_ini), key="st_tahun")
             mode = f2.radio("Periode", ["Bulanan", "Triwulanan"], horizontal=True, key="st_mode")
+            fs = f2b.radio("Status", ["Semua", "PNS", "PPPK"], horizontal=True, key="st_status")
             with f3:
                 pks_st = pilih_pekerja("f_bidang_stat")
+        if fs != "Semua":
+            pks_st = [p for p in pks_st if status_peg(p) == fs]
         if mode == "Bulanan":
             periode = [(BULAN[m - 1][:3], date(th, m, 1), date(th, m, calendar.monthrange(th, m)[1]))
                        for m in range(1, 13)]
@@ -1305,6 +1319,8 @@ if halaman == STAT_HAL:
                 "Akhir": len(ps),
                 "Laki-laki": sum(p.get("jk") == "L" for p in ps),
                 "Perempuan": sum(p.get("jk") == "P" for p in ps),
+                "PNS": sum(status_peg(p) == "PNS" for p in ps),
+                "PPPK": sum(status_peg(p) == "PPPK" for p in ps),
                 "Belum diisi JK": sum(not p.get("jk") for p in ps),
             }
 
@@ -1313,6 +1329,7 @@ if halaman == STAT_HAL:
 
         hari_ini = date.today()
         kini = [p for p in pks_st if ada_pada(p, hari_ini)]
+        n_pns, n_pppk = sum(status_peg(p) == "PNS" for p in kini), sum(status_peg(p) == "PPPK" for p in kini)
         n_l, n_p = sum(p.get("jk") == "L" for p in kini), sum(p.get("jk") == "P" for p in kini)
         n_masuk, n_pen = int(df["Masuk"].sum()), int(df["Pensiun"].sum())
         st.markdown(
@@ -1322,6 +1339,8 @@ if halaman == STAT_HAL:
             f'<div class="sc-ket">Per {fmt(hari_ini)}</div></div>'
             f'<div class="sc-stat"><div class="sc-lab">Laki-laki</div><div class="sc-val">{n_l}</div></div>'
             f'<div class="sc-stat"><div class="sc-lab">Perempuan</div><div class="sc-val">{n_p}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">PNS</div><div class="sc-val">{n_pns}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">PPPK</div><div class="sc-val">{n_pppk}</div></div>'
             f'<div class="sc-stat"><div class="sc-lab">Masuk {th}</div><div class="sc-val g">{n_masuk}</div></div>'
             f'<div class="sc-stat"><div class="sc-lab">Pensiun {th}</div><div class="sc-val m">{n_pen}</div></div>'
             '</div>', unsafe_allow_html=True)
@@ -1385,6 +1404,8 @@ if halaman == STAT_HAL:
                 ring.append({"Bidang": judul or "Semua pegawai",
                              "Laki-laki": sum(p.get("jk") == "L" for p in anggota),
                              "Perempuan": sum(p.get("jk") == "P" for p in anggota),
+                             "PNS": sum(status_peg(p) == "PNS" for p in anggota),
+                             "PPPK": sum(status_peg(p) == "PPPK" for p in anggota),
                              "Belum diisi JK": sum(not p.get("jk") for p in anggota),
                              "Total": len(anggota)})
             if ring:
@@ -2031,6 +2052,351 @@ def idx(daftar, nilai) -> int:
     return daftar.index(nilai) if nilai in daftar else 0
 
 
+# ------------------------------------------------------------ impor pegawai dari Excel
+KOLOM_IMPOR = [("nip", "NIP"), ("gelar_depan", "Gelar depan"), ("nama", "Nama"),
+               ("gelar_belakang", "Gelar belakang"), ("golongan", "Golongan"), ("eselon", "Eselon"),
+               ("jenis_jabatan", "Jenis jabatan"), ("jabatan", "Jabatan"), ("bidang", "Bidang"),
+               ("subbidang", "Sub bidang"), ("jk", "Jenis kelamin"), ("tgl_masuk", "Tanggal masuk"),
+               ("tgl_pensiun", "Tanggal pensiun"), ("aktif", "Aktif"), ("ikut_wfa", "Ikut WFA"),
+               ("status_pegawai", "Status pegawai")]
+ALIAS_IMPOR = {
+    "nip": {"nip", "nomorindukpegawai"}, "gelar_depan": {"gelardepan"},
+    "nama": {"nama", "namapegawai", "namalengkap"}, "gelar_belakang": {"gelarbelakang"},
+    "golongan": {"golongan", "gol", "pangkatgolongan"}, "eselon": {"eselon"},
+    "jenis_jabatan": {"jenisjabatan"}, "jabatan": {"jabatan", "namajabatan"},
+    "bidang": {"bidang", "unitkerja"}, "subbidang": {"subbidang", "subbagian", "seksi"},
+    "jk": {"jeniskelamin", "jk", "kelamin", "gender"},
+    "tgl_masuk": {"tanggalmasuk", "tglmasuk", "tmtmasuk"},
+    "tgl_pensiun": {"tanggalpensiun", "tglpensiun", "tmtpensiun"},
+    "aktif": {"aktif", "statusaktif"}, "ikut_wfa": {"ikutwfa", "wfa"},
+    "status_pegawai": {"statuspegawai", "statuskepegawaian", "pnspppk", "jenispegawai", "status"},
+}
+MAKS_BARIS_IMPOR = 2000
+
+
+def _nrm(x) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(x).lower())
+
+
+def _teks(v) -> str:
+    """Isi sel jadi teks rapi. Angka bulat (mis. NIP tersimpan sebagai angka) tidak diberi .0."""
+    if v is None or (not isinstance(v, str) and pd.isna(v)):
+        return ""
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return " ".join(str(v).split())
+
+
+def _tgl_impor(v):
+    """(tanggal | None, salah?). Menerima sel tanggal Excel, DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD."""
+    if v is None or (not isinstance(v, str) and pd.isna(v)) or str(v).strip() == "":
+        return None, False
+    if isinstance(v, date) and not hasattr(v, "hour"):
+        return v, False
+    if hasattr(v, "date") and not isinstance(v, str):
+        return v.date(), False
+    t = str(v).strip().split(" ")[0]
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})$", t)
+    if m:
+        y, mo, d = (int(x) for x in m.groups())
+    else:
+        m = re.match(r"^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$", t)
+        if not m:
+            return None, True
+        d, mo, y = (int(x) for x in m.groups())
+    try:
+        return date(y, mo, d), False
+    except ValueError:
+        return None, True
+    return None, True
+
+
+def _pilih_nilai(v: str, daftar: list):
+    """Cocokkan v ke salah satu isi daftar tanpa peduli huruf besar/kecil dan spasi."""
+    kunci = _nrm(v)
+    return next((x for x in daftar if _nrm(x) == kunci), None)
+
+
+def _ya_tidak(v: str):
+    t = v.strip().lower()
+    if not t:
+        return None, False
+    if t in ("ya", "y", "aktif", "ikut", "1", "true", "yes"):
+        return "Ya", False
+    if t in ("tidak", "t", "nonaktif", "tidak aktif", "tidak ikut", "0", "false", "no"):
+        return "Tidak", False
+    return None, True
+
+
+def baca_excel_pegawai(berkas):
+    """Baca sheet pertama. Kembalikan (daftar baris dict berkunci kode kolom, pesan galat atau None)."""
+    try:
+        df = pd.read_excel(berkas, dtype=object, engine="openpyxl")
+    except Exception as e:
+        return [], f"File tidak bisa dibaca sebagai Excel (.xlsx): {e}"
+    peta = {}
+    for kol in df.columns:
+        for kode, alias in ALIAS_IMPOR.items():
+            if _nrm(kol) in alias and kode not in peta.values():
+                peta[kol] = kode
+                break
+    if "nama" not in peta.values():
+        return [], ("Kolom Nama tidak ditemukan. Kolom yang terbaca: "
+                    + ", ".join(str(c) for c in df.columns) + ". Pakai templat dari tombol Unduh.")
+    df = df.dropna(how="all")
+    if len(df) > MAKS_BARIS_IMPOR:
+        return [], f"Terlalu banyak baris ({len(df)}). Maksimal {MAKS_BARIS_IMPOR} baris per impor."
+    baris = []
+    for no, (_, r) in enumerate(df.iterrows(), start=2):          # baris Excel: header = 1
+        isi = {kode: r[kol] for kol, kode in peta.items()}
+        isi["_baris"] = no
+        baris.append(isi)
+    return baris, None
+
+
+def rencana_impor(baris: list, perbarui: bool, buat_unit: bool) -> list:
+    """Periksa semua baris tanpa mengubah data. Tiap hasil: status Baru/Perbarui/Lewati/Galat."""
+    by_nip, by_nama = {}, {}
+    for p in D["pekerja"]:
+        if p.get("nip"):
+            by_nip["".join(str(p["nip"]).split())] = p
+        by_nama.setdefault(" ".join(p["nama"].lower().split()), []).append(p)
+    bid_nama = {_nrm(b["nama"]): b for b in D["bidang"]}
+    hasil, terlihat = [], set()
+    bidang_baru, sub_baru = set(), set()
+    for r in baris:
+        cat, galat = [], []
+        nama = _teks(r.get("nama"))
+        nip = "".join(_teks(r.get("nip")).split())
+        if not nama:
+            galat.append("Nama kosong")
+        if nip and not nip.isdigit():
+            galat.append("NIP harus angka (format kolom NIP sebagai Teks di Excel)")
+        if len(nip) > 15 and (not isinstance(r.get("nip"), str) or re.fullmatch(r"\d+0{3,}", nip)):
+            cat.append("NIP tersimpan sebagai angka di Excel, mungkin terpotong: periksa, "
+                       "dan format kolom NIP sebagai Teks")
+        v = {"nama": nama, "nip": nip, "gelar_depan": _teks(r.get("gelar_depan")),
+             "gelar_belakang": _teks(r.get("gelar_belakang")), "jabatan": _teks(r.get("jabatan"))}
+        for kode, daftar, label in (("golongan", GOLONGAN, "Golongan"), ("eselon", ESELON, "Eselon"),
+                                    ("jenis_jabatan", JENIS_JABATAN, "Jenis jabatan")):
+            t = _teks(r.get(kode))
+            if t:
+                cocok = _pilih_nilai(t, daftar)
+                if cocok:
+                    v[kode] = cocok
+                else:
+                    galat.append(f"{label} '{t}' tidak dikenal")
+        t = _teks(r.get("status_pegawai"))
+        if t:
+            sp = "PNS" if _nrm(t) in ("pns", "cpns") else ("PPPK" if _nrm(t) == "pppk" else None)
+            if sp:
+                v["status_pegawai"] = sp
+            else:
+                galat.append(f"Status pegawai '{t}' tidak dikenal (isi PNS atau PPPK)")
+        if v.get("golongan") and v.get("status_pegawai") and \
+                v["golongan"].startswith("PPPK") != (v["status_pegawai"] == "PPPK"):
+            galat.append(f"Golongan {v['golongan']} tidak cocok dengan status {v['status_pegawai']}")
+        t = _teks(r.get("jk")).lower()
+        if t:
+            if t in ("l", "laki-laki", "laki laki", "laki", "pria"):
+                v["jk"] = "L"
+            elif t in ("p", "perempuan", "wanita"):
+                v["jk"] = "P"
+            else:
+                galat.append(f"Jenis kelamin '{t}' tidak dikenal (isi L atau P)")
+        for kode, label in (("tgl_masuk", "Tanggal masuk"), ("tgl_pensiun", "Tanggal pensiun")):
+            d, salah = _tgl_impor(r.get(kode))
+            if salah:
+                galat.append(f"{label} tidak terbaca (pakai format DD/MM/YYYY)")
+            elif d:
+                v[kode] = d.isoformat()
+        if v.get("tgl_masuk") and v.get("tgl_pensiun") and v["tgl_pensiun"] <= v["tgl_masuk"]:
+            galat.append("Tanggal pensiun harus setelah tanggal masuk")
+        for kode, label in (("aktif", "Aktif"), ("ikut_wfa", "Ikut WFA")):
+            nilai, salah = _ya_tidak(_teks(r.get(kode)))
+            if salah:
+                galat.append(f"{label} harus Ya atau Tidak")
+            elif nilai:
+                v[kode] = nilai
+        # bidang dan sub bidang
+        bn, sn = _teks(r.get("bidang")), _teks(r.get("subbidang"))
+        if sn and not bn:
+            galat.append("Sub bidang diisi tapi Bidang kosong")
+        if bn:
+            b = bid_nama.get(_nrm(bn))
+            if b:
+                v["bidang"] = b["nama"]
+            elif buat_unit:
+                v["bidang"] = bn
+                bidang_baru.add(bn)
+                cat.append(f"bidang baru: {bn}")
+            else:
+                galat.append(f"Bidang '{bn}' belum ada")
+        if sn and bn and "bidang" in v:
+            b = bid_nama.get(_nrm(bn))
+            ada = b and any(x["bidang"] == b["id"] and _nrm(x["nama"]) == _nrm(sn) for x in D["subbidang"])
+            if ada:
+                v["subbidang"] = next(x["nama"] for x in D["subbidang"]
+                                      if x["bidang"] == b["id"] and _nrm(x["nama"]) == _nrm(sn))
+            elif buat_unit:
+                v["subbidang"] = sn
+                sub_baru.add((bn, sn))
+                cat.append(f"sub bidang baru: {sn}")
+            else:
+                galat.append(f"Sub bidang '{sn}' belum ada di bidang {bn}")
+        # cocokkan dengan pegawai yang sudah ada
+        cocok_p = None
+        if nama and not galat:
+            kunci = nip or " ".join(nama.lower().split())
+            if kunci in terlihat:
+                galat.append("Dobel di dalam file ini")
+            terlihat.add(kunci)
+            if nip:
+                cocok_p = by_nip.get(nip)
+                if not cocok_p and by_nama.get(" ".join(nama.lower().split())):
+                    cat.append("nama sudah ada dengan NIP lain")
+            else:
+                sama = by_nama.get(" ".join(nama.lower().split()), [])
+                if len(sama) > 1:
+                    galat.append("Nama sama dengan beberapa pegawai, isi NIP untuk membedakan")
+                elif sama:
+                    cocok_p = sama[0]
+        if galat:
+            status = "Galat"
+        elif cocok_p and not perbarui:
+            status = "Lewati"
+            cat.append("sudah ada")
+        elif cocok_p:
+            status = "Perbarui"
+        else:
+            status = "Baru"
+        hasil.append({"baris": r["_baris"], "status": status, "nilai": v, "cocok": cocok_p,
+                      "catatan": "; ".join(galat + cat)})
+    return hasil
+
+
+def terapkan_impor(rencana: list) -> int:
+    """Ubah D sesuai rencana (hanya baris Baru/Perbarui). Kembalikan jumlah yang diproses."""
+    def id_bidang(nama):
+        b = next((x for x in D["bidang"] if _nrm(x["nama"]) == _nrm(nama)), None)
+        if not b:
+            b = {"id": uuid.uuid4().hex[:8], "nama": nama}
+            D["bidang"].append(b)
+        return b["id"]
+
+    def id_sub(bid, nama):
+        x = next((y for y in D["subbidang"] if y["bidang"] == bid and _nrm(y["nama"]) == _nrm(nama)), None)
+        if not x:
+            x = {"id": uuid.uuid4().hex[:8], "nama": nama, "bidang": bid}
+            D["subbidang"].append(x)
+        return x["id"]
+
+    n = 0
+    for r in rencana:
+        if r["status"] not in ("Baru", "Perbarui"):
+            continue
+        v = dict(r["nilai"])
+        isi = {k: v[k] for k in ("nama", "nip", "gelar_depan", "gelar_belakang", "golongan", "eselon",
+                                 "jenis_jabatan", "jabatan", "jk", "tgl_masuk", "tgl_pensiun",
+                                 "status_pegawai") if v.get(k)}
+        if v.get("bidang"):
+            isi["bidang"] = id_bidang(v["bidang"])
+            if v.get("subbidang"):
+                isi["subbidang"] = id_sub(isi["bidang"], v["subbidang"])
+        if r["status"] == "Baru":
+            p = {"id": uuid.uuid4().hex[:8]}
+            D["pekerja"].append(p)
+        else:
+            p = r["cocok"]
+            if isi.get("bidang") and p.get("bidang") != isi["bidang"] and "subbidang" not in isi:
+                p.pop("subbidang", None)          # pindah bidang: sub bidang lama tidak berlaku lagi
+        p.update(isi)
+        for kode, kunci in (("aktif", "aktif"), ("ikut_wfa", "ikut_wfa")):
+            if v.get(kode) == "Tidak":
+                p[kunci] = False
+            elif v.get(kode) == "Ya":
+                p.pop(kunci, None)
+        n += 1
+    return n
+
+
+def buat_excel_pegawai(dengan_data: bool) -> bytes:
+    """Templat impor (kosong, dengan satu contoh) atau data pegawai saat ini dalam format yang sama."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pegawai"
+    ws.append([j for _, j in KOLOM_IMPOR])
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="2B7A57")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    if dengan_data:
+        for p in D["pekerja"]:
+            sb = sub_dari(p)
+            ws.append([str(p.get("nip", "")), p.get("gelar_depan", ""), p["nama"], p.get("gelar_belakang", ""),
+                       p.get("golongan", ""), p.get("eselon", ""), p.get("jenis_jabatan", ""),
+                       p.get("jabatan", ""), nama_bidang(p) if p.get("bidang") in
+                       {b["id"] for b in D["bidang"]} else "", sb["nama"] if sb else "",
+                       JK_NAMA.get(p.get("jk", ""), ""),
+                       ke_tgl(p.get("tgl_masuk")), ke_tgl(p.get("tgl_pensiun")),
+                       "Tidak" if not aktif(p) else "Ya", "Ya" if ikut_wfa(p) else "Tidak",
+                       status_peg(p)])
+    else:
+        ws.append(["198501012010011001", "Dr.", "Budi Santoso", "S.T., M.T.", "III/c", "Non eselon",
+                   "Fungsional", "Analis Kebijakan", "", "", "Laki-laki", date(2010, 1, 1), None, "Ya", "Ya", "PNS"])
+    akhir = max(ws.max_row, 300)
+    for kol in (1,):                                     # NIP sebagai teks
+        for r in range(2, akhir + 1):
+            ws.cell(r, kol).number_format = "@"
+    for kol in (12, 13):
+        for r in range(2, akhir + 1):
+            ws.cell(r, kol).number_format = "DD/MM/YYYY"
+    # daftar pilihan di sheet kedua
+    dv = wb.create_sheet("Daftar pilihan")
+    daftar = [("Golongan", GOLONGAN, 5), ("Eselon", ESELON, 6), ("Jenis jabatan", JENIS_JABATAN, 7),
+              ("Jenis kelamin", ["Laki-laki", "Perempuan"], 11), ("Aktif", ["Ya", "Tidak"], 14),
+              ("Ikut WFA", ["Ya", "Tidak"], 15), ("Status pegawai", STATUS_PEG, 16), ("Bidang", [b["nama"] for b in D["bidang"]], 9)]
+    for i, (judul, isi, kol_data) in enumerate(daftar, start=1):
+        dv.cell(1, i, judul).font = Font(bold=True)
+        for j, x in enumerate(isi, start=2):
+            dv.cell(j, i, x)
+        dv.column_dimensions[get_column_letter(i)].width = 16
+        if isi:
+            huruf = get_column_letter(i)
+            v = DataValidation(type="list", formula1=f"='Daftar pilihan'!${huruf}$2:${huruf}${len(isi) + 1}",
+                               allow_blank=True, errorStyle="warning" if judul == "Bidang" else "stop")
+            ws.add_data_validation(v)
+            v.add(f"{get_column_letter(kol_data)}2:{get_column_letter(kol_data)}{akhir}")
+    lebar = [20, 10, 28, 16, 12, 12, 14, 26, 20, 20, 14, 15, 15, 8, 10, 14]
+    for i, w in enumerate(lebar, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "D2"
+    pt = wb.create_sheet("Petunjuk")
+    for t in ["Petunjuk impor pegawai",
+              "1. Isi sheet Pegawai, satu pegawai per baris. Hanya kolom Nama yang wajib.",
+              "2. Jangan ubah judul kolom di baris pertama. Urutan kolom boleh berbeda.",
+              "3. NIP: isi sebagai teks, hanya angka. Kolom NIP sudah diformat teks, supaya angka panjang tidak terpotong.",
+              "4. Tanggal: format DD/MM/YYYY. Tanggal pensiun = hari pertama sudah tidak bekerja.",
+              "5. Jenis kelamin: Laki-laki atau Perempuan (L atau P juga bisa).",
+              "6. Bidang dan Sub bidang: tulis namanya. Yang belum ada bisa dibuat otomatis saat impor.",
+              "7a. Status pegawai: PNS atau PPPK. Kosong = ditebak dari golongan (golongan PPPK = PPPK).",
+              "7. Aktif dan Ikut WFA: Ya atau Tidak. Kosong berarti tidak diubah (pegawai baru: Ya).",
+              "8. Pegawai dicocokkan lewat NIP; kalau NIP kosong, lewat nama. Sel kosong tidak menghapus data lama."]:
+        pt.append([t])
+    pt["A1"].font = Font(bold=True, size=13)
+    pt.column_dimensions["A"].width = 110
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def halaman_pegawai():
     by_id = {p["id"]: p for p in D["pekerja"]}
     mode = st.session_state.get("pg_mode")          # None (daftar), "baru", atau id pegawai
@@ -2040,6 +2406,47 @@ def halaman_pegawai():
         if not mode:
             st.button("Tambah pegawai", type="primary", key="pg_tambah",
                       on_click=atur, args=("pg_mode", "baru"))
+            with st.expander("Impor dari Excel", icon=":material/upload_file:"):
+                st.caption("Unduh templat, isi, lalu unggah. Sebelum disimpan, Anda bisa memeriksa dulu "
+                           "hasilnya di tabel pratinjau.")
+                u1, u2 = st.columns(2)
+                u1.download_button("Unduh templat kosong", buat_excel_pegawai(False),
+                                   file_name="templat-pegawai.xlsx", icon=":material/download:",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                u2.download_button("Unduh data pegawai saat ini", buat_excel_pegawai(True),
+                                   file_name="data-pegawai.xlsx", icon=":material/download:",
+                                   disabled=not D["pekerja"],
+                                   help="Format sama dengan templat. Bisa diedit lalu diimpor lagi untuk "
+                                        "memperbarui banyak pegawai sekaligus.",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                berkas = st.file_uploader("File Excel (.xlsx)", type=["xlsx"], key=f"imp_berkas_{versi()}")
+                o1, o2 = st.columns(2)
+                perbarui = o1.checkbox("Perbarui pegawai yang sudah ada", value=False, key="imp_perbarui",
+                                       help="Mati: pegawai yang sudah ada dilewati. Hidup: kolom yang diisi di "
+                                            "Excel menimpa data lama, kolom kosong tidak mengubah apa pun.")
+                buat_unit = o2.checkbox("Buat bidang dan sub bidang yang belum ada", value=True, key="imp_buat")
+                if berkas is not None:
+                    baris, galat_file = baca_excel_pegawai(berkas)
+                    if galat_file:
+                        st.error(galat_file)
+                    elif not baris:
+                        st.warning("Tidak ada baris data di file itu.")
+                    else:
+                        rencana = rencana_impor(baris, perbarui, buat_unit)
+                        jml = {k: sum(r["status"] == k for r in rencana) for k in ("Baru", "Perbarui", "Lewati", "Galat")}
+                        st.markdown(f"**{jml['Baru']}** baru · **{jml['Perbarui']}** diperbarui · "
+                                    f"**{jml['Lewati']}** dilewati · **{jml['Galat']}** galat")
+                        st.dataframe(pd.DataFrame([
+                            {"Baris": r["baris"], "Status": r["status"], "Nama": r["nilai"].get("nama", ""),
+                             "NIP": r["nilai"].get("nip", ""), "Catatan": r["catatan"]} for r in rencana]),
+                            hide_index=True, use_container_width=True)
+                        if jml["Galat"]:
+                            st.caption("Baris bergalat tidak ikut diimpor. Perbaiki di Excel lalu unggah ulang, "
+                                       "atau lanjutkan untuk baris yang baik saja.")
+                        n_ok = jml["Baru"] + jml["Perbarui"]
+                        if st.button(f"Impor {n_ok} pegawai", type="primary", disabled=n_ok == 0, key="imp_jalan"):
+                            n = terapkan_impor(rencana)
+                            selesai_simpan(f"Impor {n} pegawai dari Excel")
             if not D["pekerja"]:
                 st.write("Belum ada pegawai.")
             cari = " ".join(st.text_input(
@@ -2074,7 +2481,7 @@ def halaman_pegawai():
             urut = sorted(D["pekerja"], key=kunci_urut, reverse=not naik)
             if cari:
                 urut = [x for x in urut if cari in " ".join(
-                    [x["nama"], str(x.get("nip", "")), x.get("jabatan", ""), nama_unit(x)]).lower()]
+                    [x["nama"], str(x.get("nip", "")), x.get("jabatan", ""), nama_unit(x), status_peg(x)]).lower()]
                 if not urut:
                     st.info("Tidak ada pegawai yang cocok dengan pencarian.")
             for no, p in enumerate(urut, 1):
@@ -2083,6 +2490,7 @@ def halaman_pegawai():
                 k[0].write(f"{no}.")
                 k[1].write(p.get("nip", ""))
                 k[2].markdown(f"{html.escape(nama_lengkap(p))}"
+                              + (f" · {status_peg(p)}" if status_peg(p) else "")
                               + ("" if aktif(p) else " *(nonaktif)*")
                               + ("" if ikut_wfa(p) else " *(tidak WFA)*"))
                 k[3].write(p.get("jabatan", ""))
@@ -2108,8 +2516,11 @@ def halaman_pegawai():
         st.caption("Formulir tambah/ubah data pegawai.")
         pilih_teks = lambda v: "Pilih..." if not v else v
         with st.form(f"form_pg_{mode}_{versi()}"):
-            k1, k2 = st.columns([3, 2])
+            k1, k1b, k2 = st.columns([3, 1.6, 2])
             nip = k1.text_input("NIP Pegawai", value=p.get("nip", ""), placeholder="NIP Pegawai")
+            stp_ops = [""] + STATUS_PEG
+            stp = k1b.selectbox("Status pegawai", stp_ops, index=idx(stp_ops, status_peg(p)),
+                                format_func=lambda v: v or "Pilih...")
             aktif_v = k2.radio("Aktif", ["Ya", "Tidak"], index=0 if aktif(p) else 1, horizontal=True)
             g1, g2, g3 = st.columns([1.3, 4, 1.5])
             gd = g1.text_input("Gelar depan", value=p.get("gelar_depan", ""), placeholder="Gelar depan")
@@ -2183,6 +2594,8 @@ def halaman_pegawai():
                     st.error("NIP wajib diisi.")
                 elif lain:
                     st.error(f"NIP itu sudah dipakai {nama_lengkap(lain)}.")
+                elif gol and stp and (gol.startswith("PPPK") != (stp == "PPPK")):
+                    st.error(f"Golongan {gol} tidak cocok dengan status {stp}.")
                 elif t_masuk and t_pensiun and not kosong_m and not kosong_k and t_pensiun <= t_masuk:
                     st.error("Tanggal pensiun harus setelah tanggal masuk.")
                 elif sub and bid and next(x for x in D["subbidang"] if x["id"] == sub)["bidang"] != bid:
@@ -2194,7 +2607,7 @@ def halaman_pegawai():
                     isi = {"nama": nama, "nip": nip, "gelar_depan": gd.strip(),
                            "gelar_belakang": gb.strip(), "golongan": gol, "eselon": esl,
                            "jenis_jabatan": jns, "jabatan": jab.strip(), "bidang": bid,
-                           "subbidang": sub, "jk": jk,
+                           "subbidang": sub, "jk": jk, "status_pegawai": stp,
                            "tgl_masuk": "" if kosong_m or not t_masuk else t_masuk.isoformat(),
                            "tgl_pensiun": "" if kosong_k or not t_pensiun else t_pensiun.isoformat()}
                     for kunci, v in isi.items():
