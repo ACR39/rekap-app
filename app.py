@@ -569,7 +569,7 @@ def cek_login():
     st.markdown("""
 <style>
 [data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],[data-testid="stToolbar"],
-[data-testid="stHeader"]{background:transparent !important}
+[data-testid="stHeader"]{display:none !important}
 [data-testid="stApp"]{background:linear-gradient(160deg,#eef4f0 0%,#f3f4f8 55%,#e6ecf5 100%)}
 .block-container{max-width:440px !important;padding:12vh 1.2rem 3rem !important}
 .lg-kepala{text-align:center;margin-bottom:1.4rem}
@@ -1599,7 +1599,7 @@ if halaman == "Belum mengisi":
             sampai = b.date_input("Sampai", value=date.today(), key="sampai", format="DD/MM/YYYY")
             nama_kat = {k["id"]: k["nama"] for k in D["kategori"]}
             pilih_kat = c.selectbox("Kategori", ["Semua kategori"] + list(nama_kat.values()))
-            pks_lap = pilih_pekerja("f_bidang_lap", wfa=True)
+            pks_lap = pilih_pekerja("f_bidang_lap", per_nama=True, wfa=True)
             st.caption("Hanya menghitung hari Jumat. Tanggal yang dikecualikan, serta pegawai yang "
                        "Cuti atau DL pada tanggal itu, dilewati.")
 
@@ -2268,4 +2268,3 @@ if adalah_admin() and halaman == "Tanggal dikecualikan":
     daftar_libur()
 if adalah_admin() and halaman == "Cadangan dan pindah data":
     cadangan()
-
