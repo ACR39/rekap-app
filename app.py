@@ -15,6 +15,7 @@ import os
 import time
 import uuid
 import base64 as _b64
+import calendar
 from datetime import date, timedelta
 
 import pandas as pd
@@ -695,6 +696,24 @@ def ikut_wfa(p: dict) -> bool:
     return p.get("ikut_wfa", True)
 
 
+JK_NAMA = {"L": "Laki-laki", "P": "Perempuan"}
+
+
+def ke_tgl(v):
+    """'2026-03-05' -> date; kosong atau salah format -> None."""
+    try:
+        return date.fromisoformat(v) if v else None
+    except (TypeError, ValueError):
+        return None
+
+
+def ada_pada(p: dict, d: date) -> bool:
+    """Pegawai masih bekerja pada tanggal d. Tanpa tanggal masuk dianggap sudah ada;
+    tanggal pensiun = hari pertama sudah tidak bekerja."""
+    m, k = ke_tgl(p.get("tgl_masuk")), ke_tgl(p.get("tgl_pensiun"))
+    return (m is None or m <= d) and (k is None or k > d)
+
+
 def nama_bidang(p: dict) -> str:
     peta = {b["id"]: b["nama"] for b in D["bidang"]}
     return peta.get(p.get("bidang"), TANPA)
@@ -1153,11 +1172,12 @@ UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
 MASTER = ["Pegawai", "Bidang", "Sub bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
-HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [DUKUNG_HAL] + (MASTER if adalah_admin() else [])
+STAT_HAL = "Statistik pegawai"
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [STAT_HAL, DUKUNG_HAL] + (MASTER if adalah_admin() else [])
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
+IKON = {"Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Sub bidang": "account_tree", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -1187,6 +1207,7 @@ with st.sidebar:
     with st.expander("Keterisian Triwulan", icon=":material/fact_check:", expanded=halaman in TRIWULAN):
         for h in TRIWULAN:
             tombol_nav(h)
+    tombol_nav(STAT_HAL)
     tombol_nav(DUKUNG_HAL)
     if adalah_admin():
         with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
@@ -1212,6 +1233,7 @@ DESKRIPSI = {
     "Sudah mengisi": "Daftar pegawai yang lengkap mengisi di setiap Jumat dalam rentang tanggal.",
     "Rekap cuti dan DL": "Rekap tanggal cuti dan dinas luar per pegawai.",
     "Isian triwulan": "Tandai kelengkapan isian triwulan tiap pegawai.",
+    STAT_HAL: "Jumlah, penambahan, dan pensiun pegawai per bulan atau triwulan, menurut jenis kelamin.",
     DUKUNG_HAL: "Data pendukung, bukti dukung, dan tautan untuk evaluasi SAKIP.",
     "Pegawai": "Kelola data pegawai, bidang, dan sub bidangnya.",
     "Bidang": "Kelola daftar bidang.",
@@ -1221,7 +1243,7 @@ DESKRIPSI = {
     "Cadangan dan pindah data": "Unduh cadangan data atau muat data dari berkas.",
 }
 _grup = ("MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else
-         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else "AKTIVITAS WFA"))))
+         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else ("KEPEGAWAIAN" if halaman == STAT_HAL else "AKTIVITAS WFA")))))
 _u = st.session_state.get("user")
 _chip = ""
 if _u:
@@ -1247,6 +1269,142 @@ def pilih_periode(sufiks: str, dengan_tw: bool):
         st.session_state.tw_tw = tw
     return st.session_state.tw_tahun, st.session_state.tw_tw
 
+
+# ---------------------------------------------------------------- statistik pegawai
+if halaman == STAT_HAL:
+    if not D["pekerja"]:
+        st.info("Belum ada pegawai. Tambahkan dulu di menu Master data.")
+    else:
+        tahun_ini = date.today().year
+        tahun_dari = [ke_tgl(p.get("tgl_masuk")).year for p in D["pekerja"] if ke_tgl(p.get("tgl_masuk"))]
+        tahun_ke = [ke_tgl(p.get("tgl_pensiun")).year for p in D["pekerja"] if ke_tgl(p.get("tgl_pensiun"))]
+        tahun_opsi = list(range(min(tahun_dari + [tahun_ini]), max(tahun_ke + [tahun_ini]) + 1))
+        with st.container(key="kartu_filter"):
+            f1, f2, f3 = st.columns([1, 1.4, 3])
+            th = f1.selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(tahun_ini), key="st_tahun")
+            mode = f2.radio("Periode", ["Bulanan", "Triwulanan"], horizontal=True, key="st_mode")
+            with f3:
+                pks_st = pilih_pekerja("f_bidang_stat")
+        if mode == "Bulanan":
+            periode = [(BULAN[m - 1][:3], date(th, m, 1), date(th, m, calendar.monthrange(th, m)[1]))
+                       for m in range(1, 13)]
+        else:
+            periode = [(f"TW {ROMAWI[q]}", date(th, 3 * q - 2, 1),
+                        date(th, 3 * q, calendar.monthrange(th, 3 * q)[1])) for q in range(1, 5)]
+
+        def hitung(awal: date, akhir: date):
+            sebelum = awal - timedelta(days=1)
+            ps = [p for p in pks_st if ada_pada(p, akhir)]
+            return {
+                "Awal": sum(ada_pada(p, sebelum) for p in pks_st),
+                "Masuk": sum(1 for p in pks_st if (ke_tgl(p.get("tgl_masuk")) or date.min) >= awal
+                             and ke_tgl(p.get("tgl_masuk")) <= akhir),
+                "Pensiun": sum(1 for p in pks_st if ke_tgl(p.get("tgl_pensiun"))
+                               and awal <= ke_tgl(p.get("tgl_pensiun")) <= akhir),
+                "Akhir": len(ps),
+                "Laki-laki": sum(p.get("jk") == "L" for p in ps),
+                "Perempuan": sum(p.get("jk") == "P" for p in ps),
+                "Belum diisi JK": sum(not p.get("jk") for p in ps),
+            }
+
+        baris = [{"Periode": nm, **hitung(a, z)} for nm, a, z in periode]
+        df = pd.DataFrame(baris)
+
+        hari_ini = date.today()
+        kini = [p for p in pks_st if ada_pada(p, hari_ini)]
+        n_l, n_p = sum(p.get("jk") == "L" for p in kini), sum(p.get("jk") == "P" for p in kini)
+        n_masuk, n_pen = int(df["Masuk"].sum()), int(df["Pensiun"].sum())
+        st.markdown(
+            '<div class="statcard"><div class="sc-kiri">'
+            '<span class="tag">Pegawai</span>'
+            f'<div class="sc-judul">{len(kini)} pegawai saat ini</div>'
+            f'<div class="sc-ket">Per {fmt(hari_ini)}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Laki-laki</div><div class="sc-val">{n_l}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Perempuan</div><div class="sc-val">{n_p}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Masuk {th}</div><div class="sc-val g">{n_masuk}</div></div>'
+            f'<div class="sc-stat"><div class="sc-lab">Pensiun {th}</div><div class="sc-val m">{n_pen}</div></div>'
+            '</div>', unsafe_allow_html=True)
+        lengkap_jk = sum(not p.get("jk") for p in pks_st)
+        lengkap_tgl = sum(not p.get("tgl_masuk") for p in pks_st)
+        if lengkap_jk or lengkap_tgl:
+            st.caption(f"Data belum lengkap: {lengkap_jk} pegawai belum diisi jenis kelamin, "
+                       f"{lengkap_tgl} belum diisi tanggal masuk (dianggap sudah bekerja sejak awal). "
+                       "Pegawai nonaktif tidak dihitung.")
+
+        urutan = [r["Periode"] for r in baris]
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("**Jumlah pegawai di akhir periode**")
+            panjang = df.melt(id_vars="Periode", value_vars=["Laki-laki", "Perempuan"],
+                              var_name="Jenis kelamin", value_name="Jumlah")
+            st.vega_lite_chart(panjang, {
+                "mark": "bar",
+                "encoding": {
+                    "x": {"field": "Periode", "type": "nominal", "sort": urutan,
+                          "axis": {"title": None, "labelAngle": 0}},
+                    "y": {"field": "Jumlah", "type": "quantitative", "axis": {"title": None, "tickMinStep": 1}},
+                    "color": {"field": "Jenis kelamin", "type": "nominal",
+                              "scale": {"domain": ["Laki-laki", "Perempuan"], "range": ["#2b7a57", "#d98324"]},
+                              "legend": {"orient": "bottom", "title": None}},
+                    "tooltip": [{"field": "Periode"}, {"field": "Jenis kelamin"}, {"field": "Jumlah"}]},
+                "width": "container", "height": 280})
+        with g2:
+            st.markdown("**Pegawai masuk dan pensiun**")
+            panjang2 = df.melt(id_vars="Periode", value_vars=["Masuk", "Pensiun"],
+                               var_name="Keterangan", value_name="Jumlah")
+            st.vega_lite_chart(panjang2, {
+                "mark": "bar",
+                "encoding": {
+                    "x": {"field": "Periode", "type": "nominal", "sort": urutan,
+                          "axis": {"title": None, "labelAngle": 0}},
+                    "xOffset": {"field": "Keterangan"},
+                    "y": {"field": "Jumlah", "type": "quantitative", "axis": {"title": None, "tickMinStep": 1}},
+                    "color": {"field": "Keterangan", "type": "nominal",
+                              "scale": {"domain": ["Masuk", "Pensiun"], "range": ["#2b7a57", "#b42318"]},
+                              "legend": {"orient": "bottom", "title": None}},
+                    "tooltip": [{"field": "Periode"}, {"field": "Keterangan"}, {"field": "Jumlah"}]},
+                "width": "container", "height": 280})
+
+        st.markdown("**Tabel rekap**")
+        st.dataframe(df, hide_index=True, use_container_width=True, height=(len(df) + 1) * 35 + 3)
+        st.download_button("Unduh CSV", df.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"statistik-pegawai-{th}-{mode.lower()}.csv", mime="text/csv",
+                           icon=":material/download:")
+
+        with st.expander("Rincian satu periode", expanded=False):
+            idx_p = next((i for i, (_, a, z) in enumerate(periode) if a <= hari_ini <= z), len(periode) - 1)
+            pilih = st.selectbox("Periode", range(len(periode)), index=idx_p,
+                                 format_func=lambda i: f"{periode[i][0]} {th} ({periode[i][1].strftime('%d/%m/%Y')} - "
+                                                       f"{periode[i][2].strftime('%d/%m/%Y')})")
+            _, a, z = periode[pilih]
+            st.markdown("Per bidang di akhir periode")
+            ps = [p for p in pks_st if ada_pada(p, z)]
+            ring = []
+            for judul, anggota in kelompok(ps):
+                ring.append({"Bidang": judul or "Semua pegawai",
+                             "Laki-laki": sum(p.get("jk") == "L" for p in anggota),
+                             "Perempuan": sum(p.get("jk") == "P" for p in anggota),
+                             "Belum diisi JK": sum(not p.get("jk") for p in anggota),
+                             "Total": len(anggota)})
+            if ring:
+                st.dataframe(pd.DataFrame(ring), hide_index=True, use_container_width=True)
+            else:
+                st.caption("Tidak ada pegawai pada periode ini.")
+            masuk_l = [p for p in pks_st if ke_tgl(p.get("tgl_masuk")) and a <= ke_tgl(p["tgl_masuk"]) <= z]
+            pen_l = [p for p in pks_st if ke_tgl(p.get("tgl_pensiun")) and a <= ke_tgl(p["tgl_pensiun"]) <= z]
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f"Masuk ({len(masuk_l)})")
+                for p in sorted(masuk_l, key=lambda x: x["tgl_masuk"]):
+                    st.write(f"{nama_lengkap(p)} · {ke_tgl(p['tgl_masuk']).strftime('%d/%m/%Y')}")
+                if not masuk_l:
+                    st.caption("Tidak ada.")
+            with c2:
+                st.markdown(f"Pensiun ({len(pen_l)})")
+                for p in sorted(pen_l, key=lambda x: x["tgl_pensiun"]):
+                    st.write(f"{nama_lengkap(p)} · {ke_tgl(p['tgl_pensiun']).strftime('%d/%m/%Y')}")
+                if not pen_l:
+                    st.caption("Tidak ada.")
 
 # -------------------------------------------------------------------- beranda
 if halaman == "Beranda":
@@ -1966,6 +2124,20 @@ def halaman_pegawai():
                                index=idx([""] + JENIS_JABATAN, p.get("jenis_jabatan", "")))
             jab = h4.text_input("Jabatan pegawai", value=p.get("jabatan", ""),
                                 placeholder="Jabatan pegawai")
+            e1, e2, e3 = st.columns([1.6, 1.5, 1.5])
+            jk_ops = ["", "L", "P"]
+            jk = e1.selectbox("Jenis kelamin", jk_ops, index=idx(jk_ops, p.get("jk", "")),
+                              format_func=lambda i: JK_NAMA.get(i, "Pilih..."))
+            batas = dict(min_value=date(1940, 1, 1), max_value=date(2100, 12, 31), format="DD/MM/YYYY")
+            t_masuk = e2.date_input("Tanggal masuk", value=ke_tgl(p.get("tgl_masuk")), **batas)
+            t_pensiun = e3.date_input("Tanggal pensiun", value=ke_tgl(p.get("tgl_pensiun")), **batas,
+                                      help="Hari pertama sudah tidak bekerja (TMT pensiun). "
+                                           "Kosongkan kalau belum ada.")
+            kosong_m = kosong_k = False
+            if p.get("tgl_masuk") or p.get("tgl_pensiun"):
+                z1, z2 = st.columns(2)
+                kosong_m = z1.checkbox("Kosongkan tanggal masuk") if p.get("tgl_masuk") else False
+                kosong_k = z2.checkbox("Kosongkan tanggal pensiun") if p.get("tgl_pensiun") else False
             wfa_v = st.radio("Ikut WFA", ["Ya", "Tidak"], index=0 if ikut_wfa(p) else 1,
                              horizontal=True,
                              help="Pilih Tidak untuk pegawai yang tidak bekerja WFA (misalnya beda "
@@ -2010,6 +2182,8 @@ def halaman_pegawai():
                     st.error("NIP wajib diisi.")
                 elif lain:
                     st.error(f"NIP itu sudah dipakai {nama_lengkap(lain)}.")
+                elif t_masuk and t_pensiun and not kosong_m and not kosong_k and t_pensiun <= t_masuk:
+                    st.error("Tanggal pensiun harus setelah tanggal masuk.")
                 elif sub and bid and next(x for x in D["subbidang"] if x["id"] == sub)["bidang"] != bid:
                     st.error("Sub bidang yang dipilih bukan bagian dari bidang di atas.")
                 else:
@@ -2019,7 +2193,9 @@ def halaman_pegawai():
                     isi = {"nama": nama, "nip": nip, "gelar_depan": gd.strip(),
                            "gelar_belakang": gb.strip(), "golongan": gol, "eselon": esl,
                            "jenis_jabatan": jns, "jabatan": jab.strip(), "bidang": bid,
-                           "subbidang": sub}
+                           "subbidang": sub, "jk": jk,
+                           "tgl_masuk": "" if kosong_m or not t_masuk else t_masuk.isoformat(),
+                           "tgl_pensiun": "" if kosong_k or not t_pensiun else t_pensiun.isoformat()}
                     for kunci, v in isi.items():
                         if v or kunci == "nama":
                             baru[kunci] = v
