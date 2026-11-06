@@ -3477,10 +3477,17 @@ def halaman_anggaran():
                     st.markdown(f"**{_lbl(sub[s_id])}** · bidang: {bid_s}"
                                 + ("" if a else " · *belum ada data tahun ini*"))
                     a0 = a or {"pagu": 0, "real_tw": {}, "real_bln": {}}
-                    with st.form(f"form_ang_{th}_{s_id}_{versi()}"):
+                    mode_isi = st.radio("Angka realisasi yang diketik adalah", ["Realisasi triwulan itu",
+                                                                              "Kumulatif sampai triwulan itu"],
+                                        horizontal=True, key="ang_mode_isi",
+                                        help="Kumulatif: misalnya TW I 20 juta dan TW II 30 juta berarti realisasi "
+                                             "TW II hanya bertambah 10 juta (bukan 50 juta).")
+                    kum_isi = mode_isi.startswith("Kumulatif")
+                    with st.form(f"form_ang_{th}_{s_id}_{versi()}_{'k' if kum_isi else 'b'}"):
                         pagu_v = st.number_input("Pagu (Rp)", min_value=0, step=1, value=int(a0.get("pagu", 0)),
                                                  format="%d")
-                        st.markdown("**Realisasi per triwulan (Rp)**")
+                        st.markdown("**Realisasi kumulatif sampai triwulan (Rp)**" if kum_isi
+                                    else "**Realisasi per triwulan (Rp)**")
                         t_cols = st.columns(4)
                         tw_v = {}
                         for q in range(1, 5):
@@ -3488,7 +3495,7 @@ def halaman_anggaran():
                                           for m in range(3 * q - 2, 3 * q + 1))
                             tw_v[q] = t_cols[q - 1].number_input(
                                 TW_NAMA[q] + (" (dari bulan)" if ada_bln else ""), min_value=0, step=1,
-                                value=int(real_tw(a0, q)), format="%d",
+                                value=int(real_sd(a0, q) if kum_isi else real_tw(a0, q)), format="%d",
                                 help="Kalau bulan di triwulan ini diisi, angka ini mengikuti jumlah bulannya."
                                      if ada_bln else None)
                         with st.expander("Rincian per bulan (opsional)", expanded=bool(a0.get("real_bln"))):
@@ -3503,16 +3510,35 @@ def halaman_anggaran():
                                     format="%d", placeholder="kosong")
                         if st.form_submit_button("Simpan", type="primary"):
                             rec = a or {"id": uuid.uuid4().hex[:8], "tahun": th, "sub": s_id}
-                            rec["pagu"] = int(pagu_v)
-                            rec["real_bln"] = {str(m): int(v) for m, v in bln_v.items() if v is not None}
-                            rec["real_tw"] = {}
+                            tw_isi, salah, kum_lalu = {}, [], 0
                             for q in range(1, 5):
-                                ada_b = [rec["real_bln"][str(m)] for m in range(3 * q - 2, 3 * q + 1)
-                                         if str(m) in rec["real_bln"]]
-                                rec["real_tw"][str(q)] = sum(ada_b) if ada_b else int(tw_v[q])
-                            if not a:
-                                D["anggaran"].append(rec)
-                            selesai_simpan("Anggaran tersimpan.")
+                                dari_bln = [bln_v[m] for m in range(3 * q - 2, 3 * q + 1) if bln_v[m] is not None]
+                                if dari_bln:                      # bulan menang atas angka triwulan
+                                    tw_isi[q] = int(sum(dari_bln))
+                                elif kum_isi:
+                                    tw_isi[q] = int(tw_v[q]) - kum_lalu
+                                    if tw_isi[q] < 0:
+                                        salah.append(f"Kumulatif {TW_NAMA[q]} ({rp(tw_v[q])}) lebih kecil dari "
+                                                     f"realisasi sampai triwulan sebelumnya ({rp(kum_lalu)}).")
+                                else:
+                                    tw_isi[q] = int(tw_v[q])
+                                kum_lalu += max(tw_isi[q], 0)
+                            for g in salah:
+                                st.error(g)
+                            if not salah:
+                                rec["pagu"] = int(pagu_v)
+                                rec["real_bln"] = {str(m): int(v) for m, v in bln_v.items() if v is not None}
+                                rec["real_tw"] = {}
+                                for q in range(1, 5):
+                                    ada_b = [rec["real_bln"][str(m)] for m in range(3 * q - 2, 3 * q + 1)
+                                             if str(m) in rec["real_bln"]]
+                                    rec["real_tw"][str(q)] = sum(ada_b) if ada_b else tw_isi[q]
+                                if not a:
+                                    D["anggaran"].append(rec)
+                                selesai_simpan("Anggaran tersimpan.")
+                    if a:
+                        st.caption("Tersimpan: " + " · ".join(f"{TW_NAMA[q]} {rp(real_tw(a, q))}" for q in range(1, 5))
+                                   + f" · total {rp(real_sd(a, 4))}")
 
     with tabs[2]:
         st.caption(f"Impor ke tahun **{th}**. Unduh templat, isi, lalu unggah. Hasilnya bisa diperiksa di "
