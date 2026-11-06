@@ -1,4 +1,4 @@
-"""Rekap Isian Pekerja (versi Streamlit).
+"""Monitoring Pekerjaan (versi Streamlit).
 
 Mencatat siapa yang sudah mengisi laporan pada hari Jumat (WFA) dan
 menampilkan siapa yang belum. Data disimpan sebagai satu file JSON di
@@ -23,7 +23,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Rekap Isian Pekerja", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Monitoring Pekerjaan", page_icon="📋", layout="wide")
 
 st.markdown("""
 <style>
@@ -604,7 +604,7 @@ def cek_login():
 <rect x="16.7" y="16" width="4.5" height="13" rx="1.2" fill="#fff" fill-opacity=".8"/>
 <path d="M10 13.5l4 4 9-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"
 stroke-linejoin="round" transform="translate(5 -1)"/></svg>
-<div class="lg-judul">Rekap Isian Pekerja</div>
+<div class="lg-judul">Monitoring Pekerjaan</div>
 <div class="lg-sub">Masuk untuk melanjutkan</div></div>
 """, unsafe_allow_html=True)
     terkunci = st.session_state.get("kunci_sampai", 0) - time.time()
@@ -1206,7 +1206,7 @@ LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.or
         '<path d="M10 13.5l4 4 9-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" '
         'stroke-linejoin="round" transform="translate(5 -1)"/></svg>')
 with st.sidebar:
-    st.markdown(f'<div class="brand">{LOGO}<div><div class="b1">Rekap Isian</div>'
+    st.markdown(f'<div class="brand">{LOGO}<div><div class="b1">Monitoring Pekerjaan</div>'
                 '<div class="b2">Keterisian laporan WFA</div></div></div>',
                 unsafe_allow_html=True)
 
