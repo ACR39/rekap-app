@@ -2515,6 +2515,27 @@ def halaman_pegawai():
         st.markdown("#### Form Pegawai")
         st.caption("Formulir tambah/ubah data pegawai.")
         pilih_teks = lambda v: "Pilih..." if not v else v
+        # Bidang dan sub bidang di luar formulir, supaya pilihan sub bidang ikut berubah
+        # begitu bidang diganti (isi formulir biasa baru terbaca saat Simpan).
+        bid = sub = ""
+        if D["bidang"]:
+            peta = {b["id"]: b["nama"] for b in D["bidang"]}
+            opsi = [""] + list(peta)
+            q1, q2 = st.columns(2)
+            bid = q1.selectbox("Bidang", opsi, index=idx(opsi, p.get("bidang", "")),
+                               format_func=lambda i: TANPA if not i else peta[i],
+                               key=f"pg_bid_{mode}_{versi()}")
+            subs = [x for x in D["subbidang"] if (x["bidang"] == bid if bid else x["bidang"] in peta)]
+            if subs:
+                ops = [""] + [x["id"] for x in subs]
+                nama_s = {x["id"]: (x["nama"] if bid else f"{peta[x['bidang']]} › {x['nama']}") for x in subs}
+                awal = p.get("subbidang", "") if sub_dari(p) and sub_dari(p)["id"] in nama_s else ""
+                sub = q2.selectbox("Sub bidang (boleh kosong)", ops, index=idx(ops, awal),
+                                   format_func=lambda i: "Tanpa sub bidang" if not i else nama_s[i],
+                                   key=f"pg_sub_{mode}_{versi()}_{bid or 'semua'}")
+            elif bid:
+                q2.selectbox("Sub bidang (boleh kosong)", ["Belum ada sub bidang di bidang ini"],
+                             disabled=True, key=f"pg_subkosong_{mode}_{versi()}_{bid}")
         with st.form(f"form_pg_{mode}_{versi()}"):
             k1, k1b, k2 = st.columns([3, 1.6, 2])
             nip = k1.text_input("NIP Pegawai", value=p.get("nip", ""), placeholder="NIP Pegawai")
@@ -2554,21 +2575,6 @@ def halaman_pegawai():
                              horizontal=True,
                              help="Pilih Tidak untuk pegawai yang tidak bekerja WFA (misalnya beda "
                                   "divisi). Tidak dihitung di rekap WFA, tetapi tetap di triwulan.")
-            bid = ""
-            if D["bidang"]:
-                peta = {b["id"]: b["nama"] for b in D["bidang"]}
-                opsi = [""] + list(peta)
-                bid = st.selectbox("Bidang", opsi, index=idx(opsi, p.get("bidang", "")),
-                                   format_func=lambda i: TANPA if not i else peta[i])
-            sub = ""
-            if D["bidang"] and D["subbidang"]:
-                pb = {b["id"]: b["nama"] for b in D["bidang"]}
-                ops = [""] + [x["id"] for x in D["subbidang"] if x["bidang"] in pb]
-                pt = {x["id"]: f"{pb[x['bidang']]} › {x['nama']}" for x in D["subbidang"] if x["bidang"] in pb}
-                awal = p.get("subbidang", "") if sub_dari(p) else ""
-                sub = st.selectbox("Sub bidang (boleh kosong)", ops, index=idx(ops, awal),
-                                   format_func=lambda i: "Tanpa sub bidang" if not i else pt[i],
-                                   help="Pilih sub bidang di bawah bidang yang sama dengan pilihan Bidang di atas.")
             yakin = st.checkbox("Ya, hapus pegawai ini") if mode != "baru" else False
             t1, t2, t3, _ = st.columns([1, 1, 1, 3])
             simpan = t1.form_submit_button("Simpan", type="primary")
