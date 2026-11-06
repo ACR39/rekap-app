@@ -340,6 +340,9 @@ def data_kosong() -> dict:
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
+        "program": [],     # [{"id","kode","nama"}]  (struktur anggaran)
+        "kegiatan": [],    # [{"id","kode","nama","program"}]
+        "subkegiatan": [],  # [{"id","kode","nama","kegiatan","bidang"(opsional)}]
         "anggaran": [],  # [{"id","tahun","kode","nama","bidang"(id),"pagu","real":{"1":rupiah,...}}]
         "dukung": {},    # {"<id baris>": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
         "dukung_struktur": [],  # [{"id","nama","baris":[{"id","data","bukti"}]}]; kosong = struktur bawaan
@@ -1182,7 +1185,7 @@ if not cfg_github():
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
-MASTER = ["Pegawai", "Bidang", "Sub bidang", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
+MASTER = ["Pegawai", "Bidang", "Sub bidang", "Struktur anggaran", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
 STAT_HAL = "Statistik pegawai"
@@ -1192,7 +1195,7 @@ if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
 IKON = {"Realisasi anggaran": "payments", "Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
-        "Pegawai": "groups", "Bidang": "apartment", "Sub bidang": "account_tree", "Kategori": "sell",
+        "Pegawai": "groups", "Bidang": "apartment", "Sub bidang": "account_tree", "Struktur anggaran": "schema", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
         '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -1248,12 +1251,13 @@ DESKRIPSI = {
     "Sudah mengisi": "Daftar pegawai yang lengkap mengisi di setiap Jumat dalam rentang tanggal.",
     "Rekap cuti dan DL": "Rekap tanggal cuti dan dinas luar per pegawai.",
     "Isian triwulan": "Tandai kelengkapan isian triwulan tiap pegawai.",
-    ANGGARAN_HAL: "Pagu, realisasi, dan serapan anggaran per program, kegiatan, sub kegiatan, dan bidang.",
+    ANGGARAN_HAL: "Pagu, realisasi, dan serapan anggaran per triwulan, menurut program, kegiatan, sub kegiatan, dan bidang.",
     STAT_HAL: "Jumlah, penambahan, dan pensiun pegawai per bulan atau triwulan, menurut jenis kelamin.",
     DUKUNG_HAL: "Data pendukung, bukti dukung, dan tautan untuk evaluasi SAKIP.",
     "Pegawai": "Kelola data pegawai, bidang, dan sub bidangnya.",
     "Bidang": "Kelola daftar bidang.",
     "Sub bidang": "Kelola sub bidang di bawah tiap bidang.",
+    "Struktur anggaran": "Atur program, kegiatan, dan sub kegiatan beserta sambungannya.",
     "Tanggal dikecualikan": "Hari libur atau tanggal yang tidak dihitung dalam rekap.",
     "Komponen data dukung": "Atur komponen dan baris pada tabel data dukung evaluasi.",
     "Cadangan dan pindah data": "Unduh cadangan data atau muat data dari berkas.",
@@ -2809,13 +2813,23 @@ def cadangan():
 
 
 # ------------------------------------------------------------ realisasi anggaran
+# Struktur (diatur di Master data > Struktur anggaran):
+#   D["program"]      [{"id","kode","nama"}]
+#   D["kegiatan"]     [{"id","kode","nama","program"(id)}]
+#   D["subkegiatan"]  [{"id","kode","nama","kegiatan"(id),"bidang"(id, opsional)}]
+# Angka per tahun:
+#   D["anggaran"]     [{"id","tahun","sub"(id sub kegiatan),"pagu","real_tw":{"1".."4"},"real_bln":{"1".."12"}}]
+# Realisasi satu triwulan = jumlah bulan di triwulan itu kalau ada bulan yang diisi, kalau tidak angka triwulan.
 BLN3 = [b[:3] for b in BULAN]
+TW_NAMA = {1: "TW I", 2: "TW II", 3: "TW III", 4: "TW IV"}
 TANPA_PROG, TANPA_KEG = "(Tanpa program)", "(Tanpa kegiatan)"
 ALIAS_BULAN = {m: {_nrm(BULAN[m - 1][:3]), _nrm(BULAN[m - 1])} for m in range(1, 13)}
 ALIAS_BULAN[5] |= {"may"}
 ALIAS_BULAN[8] |= {"agt", "agst", "aug"}
 ALIAS_BULAN[10] |= {"oct"}
 ALIAS_BULAN[12] |= {"dec"}
+ALIAS_TW = {q: {f"tw{q}", f"tw{ROMAWI[q].lower()}", f"triwulan{q}", f"triwulan{ROMAWI[q].lower()}"}
+            for q in range(1, 5)}
 ALIAS_ANGGARAN = {"kode": {"kode", "kodesubkegiatan", "kodekegiatan"},
                   "program": {"program", "namaprogram"},
                   "kegiatan": {"kegiatan", "namakegiatan"},
@@ -2829,7 +2843,6 @@ def rp(n) -> str:
 
 
 def rp_ringkas(n) -> str:
-    """Untuk kartu: Rp 1,48 miliar / Rp 520 juta / Rp 950.000."""
     a = abs(n)
     for batas, satuan in ((1e12, "triliun"), (1e9, "miliar"), (1e6, "juta")):
         if a >= batas:
@@ -2857,12 +2870,259 @@ def _angka(v):
     return float(t)
 
 
-def real_sd(k: dict, bulan: int) -> float:
-    return sum(k.get("real", {}).get(str(m), 0) or 0 for m in range(1, bulan + 1))
+def tw_dari_bulan(m: int) -> int:
+    return (m - 1) // 3 + 1
+
+
+def real_tw(a: dict, q: int) -> float:
+    """Realisasi satu triwulan (aturan: bulan menang atas angka triwulan)."""
+    bln = [a.get("real_bln", {}).get(str(m)) for m in range(3 * q - 2, 3 * q + 1)]
+    bln = [x for x in bln if x is not None]
+    return sum(bln) if bln else (a.get("real_tw", {}).get(str(q), 0) or 0)
+
+
+def real_sd(a: dict, q: int) -> float:
+    return sum(real_tw(a, i) for i in range(1, q + 1))
 
 
 def persen_serap(real: float, pagu: float) -> float:
     return round(real / pagu * 100, 1) if pagu else 0.0
+
+
+def _lbl(x: dict) -> str:
+    return f"{x['kode']} · {x['nama']}" if x.get("kode") else x["nama"]
+
+
+def peta_struktur():
+    prog = {p["id"]: p for p in D["program"]}
+    keg = {k["id"]: k for k in D["kegiatan"]}
+    sub = {s["id"]: s for s in D["subkegiatan"]}
+    return prog, keg, sub
+
+
+def jejak_sub(s: dict) -> tuple:
+    """(program, kegiatan) dari sub kegiatan s; kosong kalau putus."""
+    prog, keg, _ = peta_struktur()
+    k = keg.get(s.get("kegiatan"), {})
+    p = prog.get(k.get("program"), {})
+    return p, k
+
+
+def migrasi_anggaran():
+    """Data format lama (nama program/kegiatan sebagai teks) -> struktur bertingkat. Aman diulang."""
+    lama = [a for a in D["anggaran"] if "sub" not in a]
+    if not lama:
+        return
+    for a in lama:
+        pn, kn, sn = a.get("program") or TANPA_PROG, a.get("kegiatan") or TANPA_KEG, a.get("nama", "Tanpa nama")
+        p = next((x for x in D["program"] if _nrm(x["nama"]) == _nrm(pn)), None)
+        if not p:
+            p = {"id": uuid.uuid4().hex[:8], "kode": "", "nama": pn}
+            D["program"].append(p)
+        k = next((x for x in D["kegiatan"] if x["program"] == p["id"] and _nrm(x["nama"]) == _nrm(kn)), None)
+        if not k:
+            k = {"id": uuid.uuid4().hex[:8], "kode": "", "nama": kn, "program": p["id"]}
+            D["kegiatan"].append(k)
+        s = next((x for x in D["subkegiatan"] if x["kegiatan"] == k["id"] and _nrm(x["nama"]) == _nrm(sn)), None)
+        if not s:
+            s = {"id": uuid.uuid4().hex[:8], "kode": a.get("kode", ""), "nama": sn, "kegiatan": k["id"]}
+            if a.get("bidang"):
+                s["bidang"] = a["bidang"]
+            D["subkegiatan"].append(s)
+        a["sub"] = s["id"]
+        a["real_bln"] = dict(a.pop("real", {}))
+        for kk in ("program", "kegiatan", "nama", "kode", "bidang"):
+            a.pop(kk, None)
+
+
+migrasi_anggaran()
+
+
+def hapus_struktur(level: str, ident: str) -> dict:
+    """Hapus satu program/kegiatan/sub kegiatan beserta turunan dan data anggarannya. Kembalikan jumlahnya."""
+    n = {"kegiatan": 0, "sub": 0, "anggaran": 0}
+    if level == "program":
+        keg_id = {k["id"] for k in D["kegiatan"] if k["program"] == ident}
+        D["program"] = [p for p in D["program"] if p["id"] != ident]
+    elif level == "kegiatan":
+        keg_id = {ident}
+    else:
+        keg_id = set()
+    sub_id = {s["id"] for s in D["subkegiatan"] if s["kegiatan"] in keg_id}
+    if level == "sub":
+        sub_id = {ident}
+    n["kegiatan"] = len(keg_id) if level != "sub" else 0
+    D["kegiatan"] = [k for k in D["kegiatan"] if k["id"] not in keg_id]
+    n["sub"] = len(sub_id)
+    D["subkegiatan"] = [s for s in D["subkegiatan"] if s["id"] not in sub_id]
+    n["anggaran"] = sum(a["sub"] in sub_id for a in D["anggaran"])
+    D["anggaran"] = [a for a in D["anggaran"] if a["sub"] not in sub_id]
+    return n
+
+
+def halaman_struktur():
+    """Master data: program, kegiatan, dan sub kegiatan beserta sambungannya."""
+    prog, keg, sub = peta_struktur()
+    peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
+    st.caption("Atur dulu daftar program, lalu kegiatan di bawah program, lalu sub kegiatan di bawah kegiatan "
+               "(boleh dikaitkan ke satu bidang). Pagu dan realisasi diisi di menu Realisasi anggaran, "
+               "pada tingkat sub kegiatan.")
+    tp, tk, ts = st.tabs([f"Program ({len(D['program'])})", f"Kegiatan ({len(D['kegiatan'])})",
+                          f"Sub kegiatan ({len(D['subkegiatan'])})"])
+
+    def cabang(level, item):
+        """Teks 'Program › Kegiatan' untuk memperjelas sambungan."""
+        if level == "kegiatan":
+            return prog.get(item["program"], {}).get("nama", "?")
+        if level == "sub":
+            k = keg.get(item["kegiatan"], {})
+            return f"{prog.get(k.get('program'), {}).get('nama', '?')} › {k.get('nama', '?')}"
+        return ""
+
+    def blok(wadah, level, kunci_d, judul):
+        with wadah:
+            items = D[kunci_d]
+            if level != "program" and not D["program" if level == "kegiatan" else "kegiatan"]:
+                st.info(f"Buat {'program' if level == 'kegiatan' else 'kegiatan'} dulu.")
+                return
+            if items:
+                baris = []
+                for x in sorted(items, key=lambda y: (cabang(level, y), y.get("kode", ""), y["nama"])):
+                    r = {"Kode": x.get("kode", ""), judul: x["nama"]}
+                    if level == "kegiatan":
+                        r["Program"] = cabang(level, x)
+                    if level == "sub":
+                        j = cabang(level, x).split(" › ")
+                        r.update({"Program": j[0], "Kegiatan": j[1], "Bidang": peta_b.get(x.get("bidang"), "")})
+                    n_anak = (sum(k["program"] == x["id"] for k in D["kegiatan"]) if level == "program" else
+                              sum(s["kegiatan"] == x["id"] for s in D["subkegiatan"]) if level == "kegiatan" else None)
+                    if n_anak is not None:
+                        r["Jumlah " + ("kegiatan" if level == "program" else "sub kegiatan")] = n_anak
+                    baris.append(r)
+                st.dataframe(pd.DataFrame(baris), hide_index=True, use_container_width=True,
+                             height=min(420, (len(baris) + 1) * 35 + 3))
+            else:
+                st.caption(f"Belum ada {judul.lower()}.")
+
+            # induk yang bisa dipilih
+            def opsi_induk():
+                if level == "kegiatan":
+                    return {p["id"]: _lbl(p) for p in sorted(D["program"], key=lambda y: y["nama"])}
+                if level == "sub":
+                    return {k["id"]: f"{prog.get(k['program'], {}).get('nama', '?')} › {_lbl(k)}"
+                            for k in sorted(D["kegiatan"], key=lambda y: (prog.get(y["program"], {}).get("nama", ""),
+                                                                          y["nama"]))}
+                return {}
+
+            induk = opsi_induk()
+            nama_induk = {"kegiatan": "Program", "sub": "Kegiatan"}.get(level, "")
+
+            def kolom_isian(awal: dict, kunci: str):
+                a1, a2 = st.columns([1, 3])
+                kode = a1.text_input("Kode", value=awal.get("kode", ""), key=f"{kunci}_kode")
+                nama = a2.text_input(f"Nama {judul.lower()}", value=awal.get("nama", ""), key=f"{kunci}_nama")
+                ind, bid = "", ""
+                if induk:
+                    ids = list(induk)
+                    cur = awal.get("program" if level == "kegiatan" else "kegiatan", ids[0])
+                    ind = st.selectbox(f"Di bawah {nama_induk.lower()}", ids, index=idx(ids, cur),
+                                       format_func=lambda i: induk[i], key=f"{kunci}_ind")
+                if level == "sub" and D["bidang"]:
+                    ids_b = [""] + list(peta_b)
+                    bid = st.selectbox("Bidang pelaksana (opsional)", ids_b,
+                                       index=idx(ids_b, awal.get("bidang", "")),
+                                       format_func=lambda i: "Tanpa bidang" if not i else peta_b[i],
+                                       key=f"{kunci}_bid")
+                return kode.strip(), " ".join(nama.split()), ind, bid
+
+            def cek(kode, nama, ind, kecuali=None):
+                if not nama:
+                    return "Nama tidak boleh kosong."
+                lain = [x for x in items if x["id"] != kecuali]
+                if kode and any(_nrm(x.get("kode", "")) == _nrm(kode) for x in lain):
+                    return f"Kode {kode} sudah dipakai."
+                induk_k = "program" if level == "kegiatan" else "kegiatan"
+                if any(_nrm(x["nama"]) == _nrm(nama) and (level == "program" or x[induk_k] == ind) for x in lain):
+                    return "Nama itu sudah ada di bawah induk yang sama."
+                return None
+
+            with st.expander(f"Tambah {judul.lower()}", expanded=not items):
+                with st.form(f"tambah_{level}_{versi()}", clear_on_submit=True):
+                    kode, nama, ind, bid = kolom_isian({}, f"t_{level}")
+                    if st.form_submit_button(f"Tambah {judul.lower()}", type="primary"):
+                        g = cek(kode, nama, ind)
+                        if g:
+                            st.error(g)
+                        else:
+                            baru = {"id": uuid.uuid4().hex[:8], "kode": kode, "nama": nama}
+                            if level == "kegiatan":
+                                baru["program"] = ind
+                            if level == "sub":
+                                baru["kegiatan"] = ind
+                                if bid:
+                                    baru["bidang"] = bid
+                            D[kunci_d].append(baru)
+                            selesai_simpan("Ditambahkan.")
+            if items:
+                with st.expander(f"Ubah atau hapus {judul.lower()}"):
+                    urut = sorted(items, key=lambda y: (cabang(level, y), y.get("kode", ""), y["nama"]))
+                    pilih = st.selectbox(f"Pilih {judul.lower()}", [x["id"] for x in urut],
+                                         format_func=lambda i: next(
+                                             (f"{cabang(level, x)} › {_lbl(x)}" if cabang(level, x) else _lbl(x))
+                                             for x in items if x["id"] == i), key=f"pilih_{level}_{versi()}")
+                    x = next(y for y in items if y["id"] == pilih)
+                    with st.form(f"ubah_{level}_{pilih}_{versi()}"):
+                        kode, nama, ind, bid = kolom_isian(x, f"u_{level}_{pilih}")
+                        n_anak = {"program": sum(k["program"] == pilih for k in D["kegiatan"]),
+                                  "kegiatan": sum(s["kegiatan"] == pilih for s in D["subkegiatan"]),
+                                  "sub": sum(a["sub"] == pilih for a in D["anggaran"])}[level]
+                        info = {"program": "kegiatan", "kegiatan": "sub kegiatan", "sub": "data anggaran tahunan"}[level]
+                        yakin = st.checkbox(f"Ya, hapus beserta {n_anak} {info} dan semua data di bawahnya"
+                                            if n_anak else "Ya, hapus")
+                        b1, b2, _ = st.columns([1, 1, 4])
+                        simpan_ = b1.form_submit_button("Simpan", type="primary")
+                        hapus_ = b2.form_submit_button("Hapus")
+                        if simpan_:
+                            g = cek(kode, nama, ind, kecuali=pilih)
+                            if g:
+                                st.error(g)
+                            else:
+                                x.update({"kode": kode, "nama": nama})
+                                if level == "kegiatan":
+                                    x["program"] = ind
+                                if level == "sub":
+                                    x["kegiatan"] = ind
+                                    if bid:
+                                        x["bidang"] = bid
+                                    else:
+                                        x.pop("bidang", None)
+                                selesai_simpan("Tersimpan.")
+                        if hapus_:
+                            if not yakin:
+                                st.error("Centang dulu kotak konfirmasi hapus.")
+                            else:
+                                hapus_struktur(level, pilih)
+                                selesai_simpan("Dihapus.")
+
+    blok(tp, "program", "program", "Program")
+    blok(tk, "kegiatan", "kegiatan", "Kegiatan")
+    blok(ts, "sub", "subkegiatan", "Sub kegiatan")
+
+
+def baris_anggaran(tahun: int) -> list:
+    """Satu dict per data anggaran tahun itu, dengan nama program, kegiatan, sub kegiatan, bidang."""
+    prog, keg, sub = peta_struktur()
+    peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
+    hasil = []
+    for a in D["anggaran"]:
+        if a["tahun"] != tahun or a["sub"] not in sub:
+            continue
+        s = sub[a["sub"]]
+        k = keg.get(s["kegiatan"], {})
+        p = prog.get(k.get("program"), {})
+        hasil.append({"a": a, "kode": s.get("kode", ""), "sub": s["nama"], "kegiatan": k.get("nama", TANPA_KEG),
+                      "program": p.get("nama", TANPA_PROG), "bidang": peta_b.get(s.get("bidang"), TANPA)})
+    return hasil
 
 
 def baca_excel_anggaran(berkas):
@@ -2870,7 +3130,7 @@ def baca_excel_anggaran(berkas):
         df = pd.read_excel(berkas, dtype=object, engine="openpyxl")
     except Exception as e:
         return [], f"File tidak bisa dibaca sebagai Excel (.xlsx): {e}"
-    peta = {}                                    # kolom Excel -> "kode"/"nama"/.../("bln", m)
+    peta = {}
     for kol in df.columns:
         n = _nrm(kol)
         for kode, alias in ALIAS_ANGGARAN.items():
@@ -2878,12 +3138,16 @@ def baca_excel_anggaran(berkas):
                 peta[kol] = kode
                 break
         else:
-            for m, alias in ALIAS_BULAN.items():
-                if n in alias and ("bln", m) not in peta.values():
-                    peta[kol] = ("bln", m)
+            for q, alias in ALIAS_TW.items():
+                if n in alias and ("tw", q) not in peta.values():
+                    peta[kol] = ("tw", q)
                     break
+            else:
+                for m, alias in ALIAS_BULAN.items():
+                    if n in alias and ("bln", m) not in peta.values():
+                        peta[kol] = ("bln", m)
+                        break
     if "nama" not in peta.values() and "kegiatan" in peta.values():
-        # file tanpa kolom Sub kegiatan: kolom Kegiatan dianggap nama sub kegiatan
         peta = {k: ("nama" if v == "kegiatan" else v) for k, v in peta.items()}
     if "nama" not in peta.values():
         return [], ("Kolom Sub kegiatan tidak ditemukan. Kolom yang terbaca: "
@@ -2893,29 +3157,42 @@ def baca_excel_anggaran(berkas):
         return [], f"Terlalu banyak baris ({len(df)}). Maksimal {MAKS_BARIS_IMPOR} baris per impor."
     baris = []
     for no, (_, r) in enumerate(df.iterrows(), start=2):
-        isi = {"_baris": no, "bln": {}}
+        isi = {"_baris": no, "tw": {}, "bln": {}}
         for kol, kode in peta.items():
             if isinstance(kode, tuple):
-                isi["bln"][kode[1]] = r[kol]
+                isi[kode[0]][kode[1]] = r[kol]
             else:
                 isi[kode] = r[kol]
         baris.append(isi)
     return baris, None
 
 
-def rencana_anggaran(baris: list, tahun: int, perbarui: bool, buat_bidang: bool, kumulatif: bool) -> list:
-    ada = [k for k in D["anggaran"] if k["tahun"] == tahun]
-    kunci_h = lambda k: (_nrm(k.get("program", "")), _nrm(k.get("kegiatan", "")), _nrm(k["nama"]))
-    by_kode = {_nrm(k["kode"]): k for k in ada if k.get("kode")}
-    by_nama = {kunci_h(k): k for k in ada}
-    bid_nama = {_nrm(b["nama"]): b["nama"] for b in D["bidang"]}
+def rencana_anggaran(baris: list, tahun: int, buat_struktur: bool, kumulatif: bool) -> list:
+    prog, keg, sub = peta_struktur()
+    bid_nama = {_nrm(b["nama"]): b for b in D["bidang"]}
+    ada = {a["sub"]: a for a in D["anggaran"] if a["tahun"] == tahun}
+    sub_kode = {_nrm(s["kode"]): s for s in D["subkegiatan"] if s.get("kode")}
+
+    def cari_sub(kode, pn, kn, sn):
+        if kode and _nrm(kode) in sub_kode:
+            return sub_kode[_nrm(kode)]
+        cocok = []
+        for s in D["subkegiatan"]:
+            k = keg.get(s["kegiatan"], {})
+            p = prog.get(k.get("program"), {})
+            if _nrm(s["nama"]) == _nrm(sn) and (not pn or _nrm(p.get("nama", "")) == _nrm(pn)) \
+                    and (not kn or _nrm(k.get("nama", "")) == _nrm(kn)):
+                cocok.append(s)
+        return cocok[0] if len(cocok) == 1 else None
+
     hasil, terlihat = [], set()
     for r in baris:
         cat, galat = [], []
-        nama, kode = _teks(r.get("nama")), _teks(r.get("kode"))
-        if not nama:
+        sn, kode = _teks(r.get("nama")), _teks(r.get("kode"))
+        pn, kn = _teks(r.get("program")), _teks(r.get("kegiatan"))
+        if not sn:
             galat.append("Nama sub kegiatan kosong")
-        v = {"nama": nama, "kode": kode, "program": _teks(r.get("program")), "kegiatan": _teks(r.get("kegiatan"))}
+        v = {"nama": sn, "kode": kode, "program": pn, "kegiatan": kn}
         try:
             pagu = _angka(r.get("pagu"))
             if pagu is not None:
@@ -2927,85 +3204,90 @@ def rencana_anggaran(baris: list, tahun: int, perbarui: bool, buat_bidang: bool,
         bn = _teks(r.get("bidang"))
         if bn:
             if _nrm(bn) in bid_nama:
-                v["bidang"] = bid_nama[_nrm(bn)]
-            elif buat_bidang:
+                v["bidang"] = bid_nama[_nrm(bn)]["nama"]
+            elif buat_struktur:
                 v["bidang"] = bn
                 cat.append(f"bidang baru: {bn}")
             else:
                 galat.append(f"Bidang '{bn}' belum ada")
-        real, prev = {}, 0.0
-        for m in range(1, 13):
-            try:
-                x = _angka(r["bln"].get(m))
-            except ValueError:
-                galat.append(f"{BLN3[m - 1]} bukan angka")
-                continue
-            if x is None:
-                continue
-            if kumulatif:
-                x, prev = x - prev, x
-                if x < 0:
-                    galat.append(f"Kumulatif {BLN3[m - 1]} lebih kecil dari bulan sebelumnya")
+        for jenis, rentang, nama_ in (("tw", range(1, 5), TW_NAMA), ("bln", range(1, 13), dict(enumerate(BLN3, 1)))):
+            hasil_j, prev = {}, 0.0
+            for i in rentang:
+                try:
+                    x = _angka(r[jenis].get(i))
+                except ValueError:
+                    galat.append(f"{nama_[i]} bukan angka")
                     continue
-            elif x < 0:
-                galat.append(f"{BLN3[m - 1]} tidak boleh negatif")
-                continue
-            real[str(m)] = int(round(x))
-        v["real"] = real
-        cocok = None
-        if nama and not galat:
-            kunci_i = (_nrm(v["program"]), _nrm(v["kegiatan"]), _nrm(nama))
-            kunci = _nrm(kode) or kunci_i
+                if x is None:
+                    continue
+                if kumulatif:
+                    x, prev = x - prev, x
+                if x < 0:
+                    galat.append(f"{nama_[i]} negatif" + (" (kumulatif turun)" if kumulatif else ""))
+                    continue
+                hasil_j[str(i)] = int(round(x))
+            v["real_" + jenis] = hasil_j
+        s = None
+        if sn and not galat:
+            s = cari_sub(kode, pn, kn, sn)
+            kunci = _nrm(kode) or (_nrm(pn), _nrm(kn), _nrm(sn))
             if kunci in terlihat:
                 galat.append("Dobel di dalam file ini")
             terlihat.add(kunci)
-            cocok = by_kode.get(_nrm(kode)) if kode else None
-            if not cocok:
-                cocok = by_nama.get(kunci_i)
+            if not s:
+                if not buat_struktur:
+                    galat.append("Sub kegiatan belum ada di struktur (aktifkan opsi buat otomatis)")
+                elif not pn or not kn:
+                    galat.append("Sub kegiatan baru: isi kolom Program dan Kegiatan")
+                else:
+                    p_ada = next((p for p in D["program"] if _nrm(p["nama"]) == _nrm(pn)), None)
+                    k_ada = p_ada and any(k["program"] == p_ada["id"] and _nrm(k["nama"]) == _nrm(kn)
+                                          for k in D["kegiatan"])
+                    baru_ = (["program"] if not p_ada else []) + (["kegiatan"] if not k_ada else []) + ["sub kegiatan"]
+                    cat.append("dibuat otomatis: " + ", ".join(baru_))
         if galat:
             status = "Galat"
-        elif cocok and not perbarui:
-            status, _ = "Lewati", cat.append("sudah ada")
-        elif cocok:
+        elif s and s["id"] in ada:
             status = "Perbarui"
         else:
             status = "Baru"
-            if "pagu" not in v:
+            if "pagu" not in v and not (s and s["id"] in ada):
                 cat.append("pagu kosong, dianggap 0")
-        hasil.append({"baris": r["_baris"], "status": status, "nilai": v, "cocok": cocok,
-                      "catatan": "; ".join(galat + cat)})
+        hasil.append({"baris": r["_baris"], "status": status, "nilai": v, "sub": s, "catatan": "; ".join(galat + cat)})
     return hasil
 
 
 def terapkan_anggaran(rencana: list, tahun: int) -> int:
+    def ambil(daftar, cocok, baru):
+        x = next((y for y in daftar if cocok(y)), None)
+        if not x:
+            x = {"id": uuid.uuid4().hex[:8], **baru}
+            daftar.append(x)
+        return x
+
     n = 0
     for r in rencana:
         if r["status"] not in ("Baru", "Perbarui"):
             continue
         v = r["nilai"]
-        bn = v.get("bidang")
-        bid = ""
-        if bn:
-            b = next((x for x in D["bidang"] if _nrm(x["nama"]) == _nrm(bn)), None)
-            if not b:
-                b = {"id": uuid.uuid4().hex[:8], "nama": bn}
-                D["bidang"].append(b)
-            bid = b["id"]
-        if r["status"] == "Baru":
-            k = {"id": uuid.uuid4().hex[:8], "tahun": tahun, "kode": "", "nama": v["nama"],
-                 "pagu": 0, "real": {}}
-            D["anggaran"].append(k)
-        else:
-            k = r["cocok"]
-        k["nama"] = v["nama"]
-        for kk in ("kode", "program", "kegiatan"):
-            if v.get(kk):
-                k[kk] = v[kk]
+        s = r["sub"]
+        if not s:
+            p = ambil(D["program"], lambda y: _nrm(y["nama"]) == _nrm(v["program"]), {"kode": "", "nama": v["program"]})
+            k = ambil(D["kegiatan"], lambda y: y["program"] == p["id"] and _nrm(y["nama"]) == _nrm(v["kegiatan"]),
+                      {"kode": "", "nama": v["kegiatan"], "program": p["id"]})
+            s = ambil(D["subkegiatan"], lambda y: y["kegiatan"] == k["id"] and _nrm(y["nama"]) == _nrm(v["nama"]),
+                      {"kode": v.get("kode", ""), "nama": v["nama"], "kegiatan": k["id"]})
+        if v.get("bidang"):
+            b = ambil(D["bidang"], lambda y: _nrm(y["nama"]) == _nrm(v["bidang"]), {"nama": v["bidang"]})
+            s["bidang"] = b["id"]
+        if v.get("kode") and not s.get("kode"):
+            s["kode"] = v["kode"]
+        a = ambil(D["anggaran"], lambda y: y["tahun"] == tahun and y["sub"] == s["id"],
+                  {"tahun": tahun, "sub": s["id"], "pagu": 0, "real_tw": {}, "real_bln": {}})
         if "pagu" in v:
-            k["pagu"] = v["pagu"]
-        if bid:
-            k["bidang"] = bid
-        k.setdefault("real", {}).update(v["real"])
+            a["pagu"] = v["pagu"]
+        a.setdefault("real_tw", {}).update(v["real_tw"])
+        a.setdefault("real_bln", {}).update(v["real_bln"])
         n += 1
     return n
 
@@ -3020,27 +3302,27 @@ def buat_excel_anggaran(tahun: int, dengan_data: bool) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Anggaran"
-    ws.append(["Kode", "Program", "Kegiatan", "Sub kegiatan", "Bidang", "Pagu"] + BLN3)
+    ws.append(["Kode", "Program", "Kegiatan", "Sub kegiatan", "Bidang", "Pagu"]
+              + [TW_NAMA[q] for q in range(1, 5)] + BLN3)
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor="2B7A57")
         c.alignment = Alignment(horizontal="center", vertical="center")
-    peta = {b["id"]: b["nama"] for b in D["bidang"]}
     if dengan_data:
-        for k in sorted((x for x in D["anggaran"] if x["tahun"] == tahun), key=lambda x: (x.get("kode", ""), x["nama"])):
-            ws.append([k.get("kode", ""), k.get("program", ""), k.get("kegiatan", ""), k["nama"],
-                       peta.get(k.get("bidang"), ""), k.get("pagu", 0)]
-                      + [k.get("real", {}).get(str(m)) for m in range(1, 13)])
+        for b in sorted(baris_anggaran(tahun), key=lambda x: (x["program"], x["kegiatan"], x["kode"], x["sub"])):
+            a = b["a"]
+            ws.append([b["kode"], b["program"], b["kegiatan"], b["sub"], "" if b["bidang"] == TANPA else b["bidang"],
+                       a.get("pagu", 0)] + [real_tw(a, q) or None for q in range(1, 5)]
+                      + [a.get("real_bln", {}).get(str(m)) for m in range(1, 13)])
     else:
-        ws.append(["1.01.02.2.01.0001", "Program Penunjang Urusan Pemerintahan",
+        ws.append(["1.01.01.2.01.0001", "Program Penunjang Urusan Pemerintahan",
                    "Perencanaan, Penganggaran, dan Evaluasi Kinerja", "Penyusunan dokumen perencanaan", "",
-                   150000000, 10000000, 12500000, None, None, None, None, None, None, None, None, None, None])
+                   150000000, 30000000, 45000000] + [None] * 14)
     akhir = max(ws.max_row, 300)
     for r in range(2, akhir + 1):
-        for c in range(6, 19):
+        for c in range(6, 23):
             ws.cell(r, c).number_format = "#,##0"
-    lebar = [20, 30, 36, 40, 20, 16] + [13] * 12
-    for i, w in enumerate(lebar, start=1):
+    for i, w in enumerate([20, 30, 36, 40, 20, 16] + [14] * 4 + [12] * 12, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "E2"
     if D["bidang"]:
@@ -3054,15 +3336,18 @@ def buat_excel_anggaran(tahun: int, dengan_data: bool) -> bytes:
         v.add(f"E2:E{akhir}")
     pt = wb.create_sheet("Petunjuk")
     for t in ["Petunjuk impor realisasi anggaran",
-              "1. Satu baris = satu sub kegiatan (tempat anggaran diisi). Program dan Kegiatan diisi namanya, berulang di tiap baris. Hanya kolom Sub kegiatan yang wajib.",
-              "2. Tahun dipilih di aplikasi saat impor, bukan di file.",
-              "3. Kolom Jan sampai Des: isi angka rupiah. Pilih di aplikasi apakah angkanya "
-              "realisasi bulan itu atau kumulatif sampai bulan itu.",
-              "4. Bulan yang dikosongkan tidak mengubah data lama.",
-              "5. Sub kegiatan dicocokkan lewat Kode; kalau Kode kosong, lewat Program + Kegiatan + nama sub kegiatan."]:
+              "1. Satu baris = satu sub kegiatan (tempat anggaran diisi). Hanya kolom Sub kegiatan yang wajib.",
+              "2. Program dan Kegiatan: tulis namanya. Yang belum ada di Master data > Struktur anggaran "
+              "dibuat otomatis (butuh Program dan Kegiatan terisi).",
+              "3. Tahun dipilih di aplikasi saat impor, bukan di file.",
+              "4. Isi realisasi per triwulan (TW I sampai TW IV). Kolom Jan sampai Des opsional; "
+              "kalau bulan di suatu triwulan diisi, realisasi triwulan itu dihitung dari jumlah bulannya.",
+              "5. Pilih di aplikasi apakah angka realisasi adalah realisasi periode itu atau kumulatif.",
+              "6. Sel kosong tidak mengubah data lama.",
+              "7. Sub kegiatan dicocokkan lewat Kode; kalau Kode kosong, lewat Program + Kegiatan + nama sub kegiatan."]:
         pt.append([t])
     pt["A1"].font = Font(bold=True, size=13)
-    pt.column_dimensions["A"].width = 110
+    pt.column_dimensions["A"].width = 120
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -3071,96 +3356,91 @@ def buat_excel_anggaran(tahun: int, dengan_data: bool) -> bytes:
 def halaman_anggaran():
     admin = adalah_admin()
     hari_ini = date.today()
-    tahun_opsi = sorted({k["tahun"] for k in D["anggaran"]} | {hari_ini.year})
+    tahun_opsi = sorted({a["tahun"] for a in D["anggaran"]} | {hari_ini.year})
     with st.container(key="kartu_filter"):
-        f1, f2, f3, f4, f5 = st.columns([1, 1.5, 1.3, 1.8, 2.2])
+        f1, f2, f3, f4 = st.columns([1, 1.5, 2, 2.2])
         th = f1.selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(hari_ini.year), key="ang_tahun")
-        awal_bln = hari_ini.month if th == hari_ini.year else 12
-        sd = f2.selectbox("Realisasi sampai bulan", list(range(1, 13)), index=awal_bln - 1,
-                          format_func=lambda m: BULAN[m - 1], key=f"ang_sd_{th}")
-        mode = f3.radio("Grafik per", ["Bulan", "Triwulan"], horizontal=True, key="ang_mode")
-        peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
-        bid_opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + ([TANPA] if D["anggaran"] else [])
-        bid_pilih = f4.selectbox("Bidang", bid_opsi, key="ang_bidang") if D["bidang"] else "Semua bidang"
-        prog_nama = sorted({k.get("program") or TANPA_PROG for k in D["anggaran"] if k["tahun"] == th})
-        prog_pilih = f5.selectbox("Program", ["Semua program"] + prog_nama, key=f"ang_prog_{th}")
-    nama_tab = ["Rekap", "Isi dan ubah", "Impor Excel"] if admin else ["Rekap"]
-    tabs = st.tabs(nama_tab)
-
-    semua = [k for k in D["anggaran"] if k["tahun"] == th]
-    daftar = [k for k in semua
-              if (bid_pilih == "Semua bidang" or peta_b.get(k.get("bidang"), TANPA) == bid_pilih)
-              and (prog_pilih == "Semua program" or (k.get("program") or TANPA_PROG) == prog_pilih)]
+        tw_kini = tw_dari_bulan(hari_ini.month) if th == hari_ini.year else 4
+        sd = f2.selectbox("Realisasi sampai", [1, 2, 3, 4], index=tw_kini - 1,
+                          format_func=lambda q: "Triwulan " + ROMAWI[q], key=f"ang_sd_{th}")
+        semua = baris_anggaran(th)
+        bid_opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + [TANPA]
+        bid_pilih = f3.selectbox("Bidang", bid_opsi, key="ang_bidang")
+        prog_nama = sorted({b["program"] for b in semua})
+        prog_pilih = f4.selectbox("Program", ["Semua program"] + prog_nama, key=f"ang_prog_{th}")
+    daftar = [b for b in semua if (bid_pilih == "Semua bidang" or b["bidang"] == bid_pilih)
+              and (prog_pilih == "Semua program" or b["program"] == prog_pilih)]
+    tabs = st.tabs(["Rekap", "Isi realisasi", "Impor Excel"] if admin else ["Rekap"])
 
     with tabs[0]:
-        if not daftar:
+        if not D["subkegiatan"]:
+            st.info("Struktur anggaran belum diatur." + (
+                " Buka Master data > Struktur anggaran untuk membuat program, kegiatan, dan sub kegiatan."
+                if admin else " Hubungi admin."))
+        elif not daftar:
             st.info("Belum ada data anggaran untuk pilihan ini." + (
-                " Tambahkan di tab Isi dan ubah, atau impor dari Excel." if admin else ""))
+                " Isi di tab Isi realisasi, atau impor dari Excel." if admin else ""))
         else:
-            pagu = sum(k.get("pagu", 0) for k in daftar)
-            real = sum(real_sd(k, sd) for k in daftar)
-            ser = persen_serap(real, pagu)
+            pagu = sum(b["a"].get("pagu", 0) for b in daftar)
+            real = sum(real_sd(b["a"], sd) for b in daftar)
+            gaya = 'style="font-size:1.25rem;white-space:nowrap"'
             st.markdown(
                 '<div class="statcard"><div class="sc-kiri"><span class="tag">Anggaran</span>'
-                f'<div class="sc-judul">Serapan {ser:.1f}%</div>'
-                f'<div class="sc-ket">{len(daftar)} sub kegiatan, s.d. {BULAN[sd - 1]} {th}</div></div>'
-                f'<div class="sc-stat"><div class="sc-lab">Pagu</div><div class="sc-val" title="{rp(pagu)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(pagu)}</div></div>'
-                f'<div class="sc-stat"><div class="sc-lab">Realisasi</div><div class="sc-val g" title="{rp(real)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(real)}</div></div>'
-                f'<div class="sc-stat"><div class="sc-lab">Sisa</div><div class="sc-val m" title="{rp(pagu - real)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(pagu - real)}</div></div>'
+                f'<div class="sc-judul">Serapan {persen_serap(real, pagu):.1f}%</div>'
+                f'<div class="sc-ket">{len(daftar)} sub kegiatan, s.d. triwulan {ROMAWI[sd]} {th}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Pagu</div><div class="sc-val" title="{rp(pagu)}" {gaya}>{rp_ringkas(pagu)}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Realisasi</div><div class="sc-val g" title="{rp(real)}" {gaya}>{rp_ringkas(real)}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Sisa</div><div class="sc-val m" title="{rp(pagu - real)}" {gaya}>{rp_ringkas(pagu - real)}</div></div>'
                 '</div>', unsafe_allow_html=True)
-            # grafik per periode
-            if mode == "Bulan":
-                per = [(BLN3[m - 1], m, m) for m in range(1, sd + 1)]
-            else:
-                per = [(f"TW {ROMAWI[q]}", 3 * q - 2, min(3 * q, sd)) for q in range(1, 5) if 3 * q - 2 <= sd]
-            baris = []
-            for nm, a, z in per:
-                nilai = sum(k.get("real", {}).get(str(m), 0) or 0 for k in daftar for m in range(a, z + 1))
-                baris.append({"Periode": nm, "Realisasi (Rp juta)": round(nilai / 1e6, 2),
-                              "Serapan kumulatif (%)": min(persen_serap(sum(real_sd(k, z) for k in daftar), pagu), 100.0)})
+            baris = [{"Periode": TW_NAMA[q],
+                      "Realisasi (Rp juta)": round(sum(real_tw(b["a"], q) for b in daftar) / 1e6, 2),
+                      "Serapan kumulatif (%)": min(persen_serap(sum(real_sd(b["a"], q) for b in daftar), pagu), 100.0)}
+                     for q in range(1, sd + 1)]
             dfp = pd.DataFrame(baris)
             urutan = [b["Periode"] for b in baris]
             g1, g2 = st.columns(2)
             with g1:
-                st.markdown("**Realisasi per periode (Rp juta)**")
+                st.markdown("**Realisasi per triwulan (Rp juta)**")
                 st.vega_lite_chart(dfp, {"mark": {"type": "bar", "color": "#2b7a57"}, "encoding": {
                     "x": {"field": "Periode", "type": "nominal", "sort": urutan,
                           "axis": {"title": None, "labelAngle": 0}},
                     "y": {"field": "Realisasi (Rp juta)", "type": "quantitative", "axis": {"title": None}},
                     "tooltip": [{"field": "Periode"}, {"field": "Realisasi (Rp juta)", "format": ",.2f"}]},
-                    "width": "container", "height": 280})
+                    "width": "container", "height": 260})
             with g2:
                 st.markdown("**Serapan kumulatif (%)**")
-                grafik_persen(dfp, "Periode", "Serapan kumulatif (%)", urut=urutan)
-            # rekap bertingkat
+                grafik_persen(dfp, "Periode", "Serapan kumulatif (%)", urut=urutan, tinggi=260)
+
             tingkat = st.radio("Rekap per", ["Program", "Kegiatan", "Sub kegiatan", "Bidang"],
                                horizontal=True, key="ang_tingkat")
-
-            def kunci_t(k):
-                prog, keg = k.get("program") or TANPA_PROG, k.get("kegiatan") or TANPA_KEG
-                bid = peta_b.get(k.get("bidang"), TANPA)
-                return {"Program": (prog,), "Kegiatan": (prog, keg), "Bidang": (bid,),
-                        "Sub kegiatan": (k.get("kode", ""), prog, keg, k["nama"], bid)}[tingkat]
-
             kol_t = {"Program": ["Program"], "Kegiatan": ["Program", "Kegiatan"], "Bidang": ["Bidang"],
                      "Sub kegiatan": ["Kode", "Program", "Kegiatan", "Sub kegiatan", "Bidang"]}[tingkat]
+
+            def kunci_t(b):
+                return {"Program": (b["program"],), "Kegiatan": (b["program"], b["kegiatan"]),
+                        "Bidang": (b["bidang"],),
+                        "Sub kegiatan": (b["kode"], b["program"], b["kegiatan"], b["sub"], b["bidang"])}[tingkat]
+
             grup = {}
-            for k in daftar:
-                grup.setdefault(kunci_t(k), []).append(k)
+            for b in daftar:
+                grup.setdefault(kunci_t(b), []).append(b)
             rb, label = [], []
             for kunci, ks in sorted(grup.items()):
-                p_, r_ = sum(k.get("pagu", 0) for k in ks), sum(real_sd(k, sd) for k in ks)
-                baris_t = dict(zip(kol_t, kunci))
+                p_, r_ = sum(b["a"].get("pagu", 0) for b in ks), sum(real_sd(b["a"], sd) for b in ks)
+                r = dict(zip(kol_t, kunci))
                 if tingkat != "Sub kegiatan":
-                    baris_t["Jumlah sub kegiatan"] = len(ks)
-                baris_t.update({"Pagu": p_, "Realisasi": r_, "Sisa": p_ - r_, "Serapan (%)": persen_serap(r_, p_)})
-                rb.append(baris_t)
-                label.append(" › ".join(kunci) if tingkat == "Kegiatan" else kunci[-1] if tingkat != "Sub kegiatan"
-                             else kunci[3])
+                    r["Jumlah sub kegiatan"] = len(ks)
+                r["Pagu"] = p_
+                for q in range(1, sd + 1):
+                    r[TW_NAMA[q]] = sum(real_tw(b["a"], q) for b in ks)
+                r.update({"Realisasi": r_, "Sisa": p_ - r_, "Serapan (%)": persen_serap(r_, p_)})
+                rb.append(r)
+                label.append(" › ".join(kunci) if tingkat == "Kegiatan" else kunci[3] if tingkat == "Sub kegiatan"
+                             else kunci[0])
             dfb = pd.DataFrame(rb)
+            uang = [c for c in dfb.columns if c in ("Pagu", "Realisasi", "Sisa") or c.startswith("TW ")]
             st.dataframe(dfb, hide_index=True, use_container_width=True, height=min(620, (len(dfb) + 1) * 35 + 3),
-                         column_config={c: st.column_config.NumberColumn(format="localized")
-                                        for c in ("Pagu", "Realisasi", "Sisa")}
+                         column_config={c: st.column_config.NumberColumn(format="localized") for c in uang}
                                        | {"Serapan (%)": st.column_config.ProgressColumn(
                                            "Serapan (%)", format="%.1f%%", min_value=0, max_value=100)})
             dfg = pd.DataFrame({"Label": label, "Serapan (%)": dfb["Serapan (%)"]})
@@ -3170,66 +3450,69 @@ def halaman_anggaran():
 
     if not admin:
         return
+    prog, keg, sub = peta_struktur()
     with tabs[1]:
-        st.caption(f"Tahun {th}. Satu baris = satu **sub kegiatan** (anggaran diisi di sini; program dan kegiatan "
-                   "diisi namanya dan dijumlahkan otomatis di Rekap). Bisa tempel (paste) dari Excel. "
-                   "Isi realisasi per bulan dengan jumlah belanja **bulan itu** (bukan kumulatif). "
-                   "Baris baru ditambah lewat baris kosong di bawah tabel; hapus dengan memilih baris lalu "
-                   "tombol hapus. Filter bidang di atas tidak berlaku di sini.")
-        kolom_df = ["id", "Kode", "Program", "Kegiatan", "Sub kegiatan", "Bidang", "Pagu"] + BLN3
-        data_ed = [{"id": k["id"], "Kode": k.get("kode", ""), "Program": k.get("program", ""),
-                    "Kegiatan": k.get("kegiatan", ""), "Sub kegiatan": k["nama"],
-                    "Bidang": peta_b.get(k.get("bidang"), ""), "Pagu": k.get("pagu", 0),
-                    **{BLN3[m - 1]: k.get("real", {}).get(str(m)) for m in range(1, 13)}}
-                   for k in sorted(semua, key=lambda x: (x.get("kode", ""), x["nama"]))]
-        df_ed = pd.DataFrame(data_ed, columns=kolom_df)
-        angka_cfg = lambda judul, **kw: st.column_config.NumberColumn(judul, min_value=0, step=1, format="localized", **kw)
-        cfg = {"id": None, "Kode": st.column_config.TextColumn("Kode", width="small"),
-               "Program": st.column_config.TextColumn("Program", width="medium"),
-               "Kegiatan": st.column_config.TextColumn("Kegiatan", width="medium"),
-               "Sub kegiatan": st.column_config.TextColumn("Sub kegiatan", width="medium", required=True),
-               "Bidang": st.column_config.SelectboxColumn("Bidang", options=[b["nama"] for b in D["bidang"]],
-                                                          width="medium"),
-               "Pagu": angka_cfg("Pagu", width="medium")}
-        cfg.update({b: angka_cfg(b, width="small") for b in BLN3})
-        hasil = st.data_editor(df_ed, column_config=cfg, num_rows="dynamic", hide_index=True,
-                               use_container_width=True, key=f"ed_ang_{th}_{versi()}")
-        if st.button("Simpan perubahan", type="primary", key="ang_simpan"):
-            galat, baru, kode_lihat = [], [], set()
-            lama = {k["id"]: k for k in semua}
-            bid_id = {b["nama"]: b["id"] for b in D["bidang"]}
-            for i, r in hasil.iterrows():
-                if r.drop("id").isna().all():
-                    continue
-                no = f"Baris {i + 1}"
-                nama = "" if pd.isna(r["Sub kegiatan"]) else " ".join(str(r["Sub kegiatan"]).split())
-                if not nama:
-                    galat.append(f"{no}: nama sub kegiatan kosong")
-                    continue
-                kode = "" if pd.isna(r["Kode"]) else str(r["Kode"]).strip()
-                if kode and _nrm(kode) in kode_lihat:
-                    galat.append(f"{no}: kode {kode} dobel")
-                kode_lihat.add(_nrm(kode))
-                kid = None if pd.isna(r["id"]) else r["id"]
-                k = dict(lama.get(kid, {"id": uuid.uuid4().hex[:8], "tahun": th}))
-                teks_sel = lambda c: "" if pd.isna(r[c]) else " ".join(str(r[c]).split())
-                k.update({"kode": kode, "nama": nama, "program": teks_sel("Program"),
-                          "kegiatan": teks_sel("Kegiatan"),
-                          "pagu": 0 if pd.isna(r["Pagu"]) else int(round(float(r["Pagu"])))})
-                b = "" if pd.isna(r["Bidang"]) else r["Bidang"]
-                if b:
-                    k["bidang"] = bid_id.get(b, "")
-                else:
-                    k.pop("bidang", None)
-                k["real"] = {str(m): int(round(float(r[BLN3[m - 1]]))) for m in range(1, 13)
-                             if not pd.isna(r[BLN3[m - 1]])}
-                baru.append(k)
-            if galat:
-                for g in galat:
-                    st.error(g)
+        if not D["subkegiatan"]:
+            st.info("Atur dulu program, kegiatan, dan sub kegiatan di Master data > Struktur anggaran.")
+        else:
+            st.caption(f"Tahun {th}. Pilih sub kegiatan, lalu isi pagu dan realisasi per triwulan. "
+                       "Rincian per bulan boleh diisi (opsional).")
+            ps = sorted(D["program"], key=lambda x: x["nama"])
+            c1, c2, c3 = st.columns(3)
+            p_id = c1.selectbox("Program", [p["id"] for p in ps], format_func=lambda i: _lbl(prog[i]), key="is_prog")
+            ks = sorted([k for k in D["kegiatan"] if k["program"] == p_id], key=lambda x: x["nama"])
+            if not ks:
+                c2.selectbox("Kegiatan", ["Belum ada kegiatan di program ini"], disabled=True, key=f"is_kk_{p_id}")
             else:
-                D["anggaran"] = [k for k in D["anggaran"] if k["tahun"] != th] + baru
-                selesai_simpan(f"Anggaran {th} diperbarui ({len(baru)} sub kegiatan)")
+                k_id = c2.selectbox("Kegiatan", [k["id"] for k in ks], format_func=lambda i: _lbl(keg[i]),
+                                    key=f"is_keg_{p_id}")
+                ss = sorted([s for s in D["subkegiatan"] if s["kegiatan"] == k_id], key=lambda x: x["nama"])
+                if not ss:
+                    c3.selectbox("Sub kegiatan", ["Belum ada sub kegiatan"], disabled=True, key=f"is_ss_{k_id}")
+                else:
+                    s_id = c3.selectbox("Sub kegiatan", [s["id"] for s in ss], format_func=lambda i: _lbl(sub[i]),
+                                        key=f"is_sub_{k_id}")
+                    a = next((x for x in D["anggaran"] if x["tahun"] == th and x["sub"] == s_id), None)
+                    bid_s = {b["id"]: b["nama"] for b in D["bidang"]}.get(sub[s_id].get("bidang"), "belum dikaitkan")
+                    st.markdown(f"**{_lbl(sub[s_id])}** · bidang: {bid_s}"
+                                + ("" if a else " · *belum ada data tahun ini*"))
+                    a0 = a or {"pagu": 0, "real_tw": {}, "real_bln": {}}
+                    with st.form(f"form_ang_{th}_{s_id}_{versi()}"):
+                        pagu_v = st.number_input("Pagu (Rp)", min_value=0, step=1, value=int(a0.get("pagu", 0)),
+                                                 format="%d")
+                        st.markdown("**Realisasi per triwulan (Rp)**")
+                        t_cols = st.columns(4)
+                        tw_v = {}
+                        for q in range(1, 5):
+                            ada_bln = any(a0.get("real_bln", {}).get(str(m)) is not None
+                                          for m in range(3 * q - 2, 3 * q + 1))
+                            tw_v[q] = t_cols[q - 1].number_input(
+                                TW_NAMA[q] + (" (dari bulan)" if ada_bln else ""), min_value=0, step=1,
+                                value=int(real_tw(a0, q)), format="%d",
+                                help="Kalau bulan di triwulan ini diisi, angka ini mengikuti jumlah bulannya."
+                                     if ada_bln else None)
+                        with st.expander("Rincian per bulan (opsional)", expanded=bool(a0.get("real_bln"))):
+                            st.caption("Isi jumlah belanja bulan itu. Bulan yang kosong diabaikan. Kalau ada bulan "
+                                       "terisi di suatu triwulan, realisasi triwulan itu = jumlah bulan-bulannya.")
+                            b_cols = st.columns(4)
+                            bln_v = {}
+                            for m in range(1, 13):
+                                cur = a0.get("real_bln", {}).get(str(m))
+                                bln_v[m] = b_cols[(m - 1) % 4].number_input(
+                                    BULAN[m - 1], min_value=0, step=1, value=None if cur is None else int(cur),
+                                    format="%d", placeholder="kosong")
+                        if st.form_submit_button("Simpan", type="primary"):
+                            rec = a or {"id": uuid.uuid4().hex[:8], "tahun": th, "sub": s_id}
+                            rec["pagu"] = int(pagu_v)
+                            rec["real_bln"] = {str(m): int(v) for m, v in bln_v.items() if v is not None}
+                            rec["real_tw"] = {}
+                            for q in range(1, 5):
+                                ada_b = [rec["real_bln"][str(m)] for m in range(3 * q - 2, 3 * q + 1)
+                                         if str(m) in rec["real_bln"]]
+                                rec["real_tw"][str(q)] = sum(ada_b) if ada_b else int(tw_v[q])
+                            if not a:
+                                D["anggaran"].append(rec)
+                            selesai_simpan("Anggaran tersimpan.")
 
     with tabs[2]:
         st.caption(f"Impor ke tahun **{th}**. Unduh templat, isi, lalu unggah. Hasilnya bisa diperiksa di "
@@ -3243,11 +3526,10 @@ def halaman_anggaran():
                            disabled=not semua)
         berkas = st.file_uploader("File Excel (.xlsx)", type=["xlsx"], key=f"ang_berkas_{versi()}")
         o1, o2 = st.columns(2)
-        kum = o1.radio("Angka bulan (Jan sampai Des) di Excel adalah",
-                       ["Realisasi bulan itu", "Kumulatif sampai bulan itu"], key="ang_kum") == "Kumulatif sampai bulan itu"
-        perb = o2.checkbox("Perbarui sub kegiatan yang sudah ada", value=True, key="ang_perb",
-                           help="Dicocokkan lewat Kode, atau Program + Kegiatan + nama sub kegiatan kalau Kode kosong. Sel kosong tidak mengubah data.")
-        buat_b = o2.checkbox("Buat bidang yang belum ada", value=True, key="ang_buatb")
+        kum = o1.radio("Angka realisasi di Excel adalah", ["Realisasi periode itu", "Kumulatif sampai periode itu"],
+                       key="ang_kum") == "Kumulatif sampai periode itu"
+        buat_b = o2.checkbox("Buat program, kegiatan, sub kegiatan, dan bidang yang belum ada", value=True,
+                             key="ang_buatb")
         if berkas is not None:
             baris, galat_file = baca_excel_anggaran(berkas)
             if galat_file:
@@ -3255,15 +3537,13 @@ def halaman_anggaran():
             elif not baris:
                 st.warning("Tidak ada baris data di file itu.")
             else:
-                rencana = rencana_anggaran(baris, th, perb, buat_b, kum)
-                jml = {s_: sum(r["status"] == s_ for r in rencana) for s_ in ("Baru", "Perbarui", "Lewati", "Galat")}
-                st.markdown(f"**{jml['Baru']}** baru · **{jml['Perbarui']}** diperbarui · "
-                            f"**{jml['Lewati']}** dilewati · **{jml['Galat']}** galat")
+                rencana = rencana_anggaran(baris, th, buat_b, kum)
+                jml = {s_: sum(r["status"] == s_ for r in rencana) for s_ in ("Baru", "Perbarui", "Galat")}
+                st.markdown(f"**{jml['Baru']}** baru · **{jml['Perbarui']}** diperbarui · **{jml['Galat']}** galat")
                 st.dataframe(pd.DataFrame([
                     {"Baris": r["baris"], "Status": r["status"], "Kode": r["nilai"].get("kode", ""),
                      "Program": r["nilai"].get("program", ""), "Kegiatan": r["nilai"].get("kegiatan", ""),
                      "Sub kegiatan": r["nilai"].get("nama", ""), "Pagu": r["nilai"].get("pagu"),
-                     "Realisasi (jumlah bulan terisi)": sum(r["nilai"]["real"].values()),
                      "Catatan": r["catatan"]} for r in rencana]), hide_index=True, use_container_width=True)
                 n_ok = jml["Baru"] + jml["Perbarui"]
                 if st.button(f"Impor {n_ok} sub kegiatan", type="primary", disabled=n_ok == 0, key="ang_impor"):
@@ -3279,6 +3559,8 @@ if adalah_admin() and halaman == "Bidang":
     daftar_sederhana("Bidang", "bidang", "Pengelompokan pegawai, misalnya bidang atau seksi. "
                      "Boleh dikosongkan kalau tidak diperlukan. Setelah ditambah, pilih bidang "
                      "di formulir pegawai.")
+if adalah_admin() and halaman == "Struktur anggaran":
+    halaman_struktur()
 if adalah_admin() and halaman == "Sub bidang":
     halaman_subbidang()
 if adalah_admin() and halaman == "Komponen data dukung":
