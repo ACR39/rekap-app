@@ -340,6 +340,7 @@ def data_kosong() -> dict:
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
+        "anggaran": [],  # [{"id","tahun","kode","nama","bidang"(id),"pagu","real":{"1":rupiah,...}}]
         "dukung": {},    # {"<id baris>": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
         "dukung_struktur": [],  # [{"id","nama","baris":[{"id","data","bukti"}]}]; kosong = struktur bawaan
     }
@@ -1185,11 +1186,12 @@ MASTER = ["Pegawai", "Bidang", "Sub bidang", "Tanggal dikecualikan", "Komponen d
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
 STAT_HAL = "Statistik pegawai"
-HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [STAT_HAL, DUKUNG_HAL] + (MASTER if adalah_admin() else [])
+ANGGARAN_HAL = "Realisasi anggaran"
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [STAT_HAL, ANGGARAN_HAL, DUKUNG_HAL] + (MASTER if adalah_admin() else [])
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
+IKON = {"Realisasi anggaran": "payments", "Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
         "Pegawai": "groups", "Bidang": "apartment", "Sub bidang": "account_tree", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
@@ -1220,6 +1222,7 @@ with st.sidebar:
         for h in TRIWULAN:
             tombol_nav(h)
     tombol_nav(STAT_HAL)
+    tombol_nav(ANGGARAN_HAL)
     tombol_nav(DUKUNG_HAL)
     if adalah_admin():
         with st.expander("Master data", icon=":material/database:", expanded=halaman in MASTER):
@@ -1245,6 +1248,7 @@ DESKRIPSI = {
     "Sudah mengisi": "Daftar pegawai yang lengkap mengisi di setiap Jumat dalam rentang tanggal.",
     "Rekap cuti dan DL": "Rekap tanggal cuti dan dinas luar per pegawai.",
     "Isian triwulan": "Tandai kelengkapan isian triwulan tiap pegawai.",
+    ANGGARAN_HAL: "Pagu, realisasi, dan serapan anggaran per kegiatan dan bidang.",
     STAT_HAL: "Jumlah, penambahan, dan pensiun pegawai per bulan atau triwulan, menurut jenis kelamin.",
     DUKUNG_HAL: "Data pendukung, bukti dukung, dan tautan untuk evaluasi SAKIP.",
     "Pegawai": "Kelola data pegawai, bidang, dan sub bidangnya.",
@@ -1255,7 +1259,7 @@ DESKRIPSI = {
     "Cadangan dan pindah data": "Unduh cadangan data atau muat data dari berkas.",
 }
 _grup = ("MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else
-         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else ("KEPEGAWAIAN" if halaman == STAT_HAL else "AKTIVITAS WFA")))))
+         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else ("KEPEGAWAIAN" if halaman == STAT_HAL else ("KEUANGAN" if halaman == ANGGARAN_HAL else "AKTIVITAS WFA"))))))
 _u = st.session_state.get("user")
 _chip = ""
 if _u:
@@ -2804,6 +2808,444 @@ def cadangan():
                         selesai_simpan("Data dimuat.")
 
 
+# ------------------------------------------------------------ realisasi anggaran
+BLN3 = [b[:3] for b in BULAN]
+ALIAS_BULAN = {m: {_nrm(BULAN[m - 1][:3]), _nrm(BULAN[m - 1])} for m in range(1, 13)}
+ALIAS_BULAN[5] |= {"may"}
+ALIAS_BULAN[8] |= {"agt", "agst", "aug"}
+ALIAS_BULAN[10] |= {"oct"}
+ALIAS_BULAN[12] |= {"dec"}
+ALIAS_ANGGARAN = {"kode": {"kode", "kodekegiatan", "kodesubkegiatan"},
+                  "nama": {"kegiatan", "subkegiatan", "namakegiatan", "nama", "uraian"},
+                  "bidang": {"bidang", "unitkerja"},
+                  "pagu": {"pagu", "paguanggaran", "anggaran"}}
+
+
+def rp(n) -> str:
+    return "Rp " + f"{int(round(n)):,}".replace(",", ".")
+
+
+def rp_ringkas(n) -> str:
+    """Untuk kartu: Rp 1,48 miliar / Rp 520 juta / Rp 950.000."""
+    a = abs(n)
+    for batas, satuan in ((1e12, "triliun"), (1e9, "miliar"), (1e6, "juta")):
+        if a >= batas:
+            return f"Rp {n / batas:,.2f} {satuan}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return rp(n)
+
+
+def _angka(v):
+    """Sel Excel -> angka rupiah (float) | None kalau kosong. Salah format -> ValueError."""
+    if v is None or (not isinstance(v, str) and pd.isna(v)):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    t = re.sub(r"(?i)rp\.?|\s", "", str(v))
+    if not t:
+        return None
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".") if t.rfind(",") > t.rfind(".") else t.replace(",", "")
+    elif re.fullmatch(r"-?\d{1,3}(\.\d{3})+", t):
+        t = t.replace(".", "")
+    elif re.fullmatch(r"-?\d{1,3}(,\d{3})+", t):
+        t = t.replace(",", "")
+    else:
+        t = t.replace(",", ".")
+    return float(t)
+
+
+def real_sd(k: dict, bulan: int) -> float:
+    return sum(k.get("real", {}).get(str(m), 0) or 0 for m in range(1, bulan + 1))
+
+
+def persen_serap(real: float, pagu: float) -> float:
+    return round(real / pagu * 100, 1) if pagu else 0.0
+
+
+def baca_excel_anggaran(berkas):
+    try:
+        df = pd.read_excel(berkas, dtype=object, engine="openpyxl")
+    except Exception as e:
+        return [], f"File tidak bisa dibaca sebagai Excel (.xlsx): {e}"
+    peta = {}                                    # kolom Excel -> "kode"/"nama"/.../("bln", m)
+    for kol in df.columns:
+        n = _nrm(kol)
+        for kode, alias in ALIAS_ANGGARAN.items():
+            if n in alias and kode not in peta.values():
+                peta[kol] = kode
+                break
+        else:
+            for m, alias in ALIAS_BULAN.items():
+                if n in alias and ("bln", m) not in peta.values():
+                    peta[kol] = ("bln", m)
+                    break
+    if "nama" not in peta.values():
+        return [], ("Kolom Kegiatan tidak ditemukan. Kolom yang terbaca: "
+                    + ", ".join(str(c) for c in df.columns) + ". Pakai templat dari tombol Unduh.")
+    df = df.dropna(how="all")
+    if len(df) > MAKS_BARIS_IMPOR:
+        return [], f"Terlalu banyak baris ({len(df)}). Maksimal {MAKS_BARIS_IMPOR} baris per impor."
+    baris = []
+    for no, (_, r) in enumerate(df.iterrows(), start=2):
+        isi = {"_baris": no, "bln": {}}
+        for kol, kode in peta.items():
+            if isinstance(kode, tuple):
+                isi["bln"][kode[1]] = r[kol]
+            else:
+                isi[kode] = r[kol]
+        baris.append(isi)
+    return baris, None
+
+
+def rencana_anggaran(baris: list, tahun: int, perbarui: bool, buat_bidang: bool, kumulatif: bool) -> list:
+    ada = [k for k in D["anggaran"] if k["tahun"] == tahun]
+    by_kode = {_nrm(k["kode"]): k for k in ada if k.get("kode")}
+    by_nama = {_nrm(k["nama"]): k for k in ada}
+    bid_nama = {_nrm(b["nama"]): b["nama"] for b in D["bidang"]}
+    hasil, terlihat = [], set()
+    for r in baris:
+        cat, galat = [], []
+        nama, kode = _teks(r.get("nama")), _teks(r.get("kode"))
+        if not nama:
+            galat.append("Nama kegiatan kosong")
+        v = {"nama": nama, "kode": kode}
+        try:
+            pagu = _angka(r.get("pagu"))
+            if pagu is not None:
+                if pagu < 0:
+                    galat.append("Pagu tidak boleh negatif")
+                v["pagu"] = int(round(pagu))
+        except ValueError:
+            galat.append("Pagu bukan angka")
+        bn = _teks(r.get("bidang"))
+        if bn:
+            if _nrm(bn) in bid_nama:
+                v["bidang"] = bid_nama[_nrm(bn)]
+            elif buat_bidang:
+                v["bidang"] = bn
+                cat.append(f"bidang baru: {bn}")
+            else:
+                galat.append(f"Bidang '{bn}' belum ada")
+        real, prev = {}, 0.0
+        for m in range(1, 13):
+            try:
+                x = _angka(r["bln"].get(m))
+            except ValueError:
+                galat.append(f"{BLN3[m - 1]} bukan angka")
+                continue
+            if x is None:
+                continue
+            if kumulatif:
+                x, prev = x - prev, x
+                if x < 0:
+                    galat.append(f"Kumulatif {BLN3[m - 1]} lebih kecil dari bulan sebelumnya")
+                    continue
+            elif x < 0:
+                galat.append(f"{BLN3[m - 1]} tidak boleh negatif")
+                continue
+            real[str(m)] = int(round(x))
+        v["real"] = real
+        cocok = None
+        if nama and not galat:
+            kunci = _nrm(kode) or _nrm(nama)
+            if kunci in terlihat:
+                galat.append("Dobel di dalam file ini")
+            terlihat.add(kunci)
+            cocok = by_kode.get(_nrm(kode)) if kode else None
+            if not cocok:
+                cocok = by_nama.get(_nrm(nama))
+        if galat:
+            status = "Galat"
+        elif cocok and not perbarui:
+            status, _ = "Lewati", cat.append("sudah ada")
+        elif cocok:
+            status = "Perbarui"
+        else:
+            status = "Baru"
+            if "pagu" not in v:
+                cat.append("pagu kosong, dianggap 0")
+        hasil.append({"baris": r["_baris"], "status": status, "nilai": v, "cocok": cocok,
+                      "catatan": "; ".join(galat + cat)})
+    return hasil
+
+
+def terapkan_anggaran(rencana: list, tahun: int) -> int:
+    n = 0
+    for r in rencana:
+        if r["status"] not in ("Baru", "Perbarui"):
+            continue
+        v = r["nilai"]
+        bn = v.get("bidang")
+        bid = ""
+        if bn:
+            b = next((x for x in D["bidang"] if _nrm(x["nama"]) == _nrm(bn)), None)
+            if not b:
+                b = {"id": uuid.uuid4().hex[:8], "nama": bn}
+                D["bidang"].append(b)
+            bid = b["id"]
+        if r["status"] == "Baru":
+            k = {"id": uuid.uuid4().hex[:8], "tahun": tahun, "kode": "", "nama": v["nama"],
+                 "pagu": 0, "real": {}}
+            D["anggaran"].append(k)
+        else:
+            k = r["cocok"]
+        k["nama"] = v["nama"]
+        if v.get("kode"):
+            k["kode"] = v["kode"]
+        if "pagu" in v:
+            k["pagu"] = v["pagu"]
+        if bid:
+            k["bidang"] = bid
+        k.setdefault("real", {}).update(v["real"])
+        n += 1
+    return n
+
+
+def buat_excel_anggaran(tahun: int, dengan_data: bool) -> bytes:
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Anggaran"
+    ws.append(["Kode", "Kegiatan", "Bidang", "Pagu"] + BLN3)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="2B7A57")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+    peta = {b["id"]: b["nama"] for b in D["bidang"]}
+    if dengan_data:
+        for k in sorted((x for x in D["anggaran"] if x["tahun"] == tahun), key=lambda x: (x.get("kode", ""), x["nama"])):
+            ws.append([k.get("kode", ""), k["nama"], peta.get(k.get("bidang"), ""), k.get("pagu", 0)]
+                      + [k.get("real", {}).get(str(m)) for m in range(1, 13)])
+    else:
+        ws.append(["1.01.02.2.01", "Contoh: Penyusunan dokumen perencanaan", "", 150000000,
+                   10000000, 12500000, None, None, None, None, None, None, None, None, None, None])
+    akhir = max(ws.max_row, 300)
+    for r in range(2, akhir + 1):
+        for c in range(4, 17):
+            ws.cell(r, c).number_format = "#,##0"
+    lebar = [16, 46, 20, 16] + [13] * 12
+    for i, w in enumerate(lebar, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "C2"
+    if D["bidang"]:
+        dv = wb.create_sheet("Daftar bidang")
+        dv.cell(1, 1, "Bidang").font = Font(bold=True)
+        for j, b in enumerate(D["bidang"], start=2):
+            dv.cell(j, 1, b["nama"])
+        v = DataValidation(type="list", formula1=f"='Daftar bidang'!$A$2:$A${len(D['bidang']) + 1}",
+                           allow_blank=True, errorStyle="warning")
+        ws.add_data_validation(v)
+        v.add(f"C2:C{akhir}")
+    pt = wb.create_sheet("Petunjuk")
+    for t in ["Petunjuk impor realisasi anggaran",
+              "1. Satu baris = satu kegiatan atau sub kegiatan. Hanya kolom Kegiatan yang wajib.",
+              "2. Tahun dipilih di aplikasi saat impor, bukan di file.",
+              "3. Kolom Jan sampai Des: isi angka rupiah. Pilih di aplikasi apakah angkanya "
+              "realisasi bulan itu atau kumulatif sampai bulan itu.",
+              "4. Bulan yang dikosongkan tidak mengubah data lama.",
+              "5. Kegiatan dicocokkan lewat Kode; kalau Kode kosong, lewat nama kegiatan."]:
+        pt.append([t])
+    pt["A1"].font = Font(bold=True, size=13)
+    pt.column_dimensions["A"].width = 110
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def halaman_anggaran():
+    admin = adalah_admin()
+    hari_ini = date.today()
+    tahun_opsi = sorted({k["tahun"] for k in D["anggaran"]} | {hari_ini.year})
+    with st.container(key="kartu_filter"):
+        f1, f2, f3, f4 = st.columns([1, 1.6, 1.4, 2])
+        th = f1.selectbox("Tahun", tahun_opsi, index=tahun_opsi.index(hari_ini.year), key="ang_tahun")
+        awal_bln = hari_ini.month if th == hari_ini.year else 12
+        sd = f2.selectbox("Realisasi sampai bulan", list(range(1, 13)), index=awal_bln - 1,
+                          format_func=lambda m: BULAN[m - 1], key=f"ang_sd_{th}")
+        mode = f3.radio("Grafik per", ["Bulan", "Triwulan"], horizontal=True, key="ang_mode")
+        peta_b = {b["id"]: b["nama"] for b in D["bidang"]}
+        bid_opsi = ["Semua bidang"] + [b["nama"] for b in D["bidang"]] + ([TANPA] if D["anggaran"] else [])
+        bid_pilih = f4.selectbox("Bidang", bid_opsi, key="ang_bidang") if D["bidang"] else "Semua bidang"
+    nama_tab = ["Rekap", "Isi dan ubah", "Impor Excel"] if admin else ["Rekap"]
+    tabs = st.tabs(nama_tab)
+
+    semua = [k for k in D["anggaran"] if k["tahun"] == th]
+    daftar = [k for k in semua if bid_pilih == "Semua bidang"
+              or (peta_b.get(k.get("bidang"), TANPA) == bid_pilih)]
+
+    with tabs[0]:
+        if not daftar:
+            st.info("Belum ada data anggaran untuk pilihan ini." + (
+                " Tambahkan di tab Isi dan ubah, atau impor dari Excel." if admin else ""))
+        else:
+            pagu = sum(k.get("pagu", 0) for k in daftar)
+            real = sum(real_sd(k, sd) for k in daftar)
+            ser = persen_serap(real, pagu)
+            st.markdown(
+                '<div class="statcard"><div class="sc-kiri"><span class="tag">Anggaran</span>'
+                f'<div class="sc-judul">Serapan {ser:.1f}%</div>'
+                f'<div class="sc-ket">{len(daftar)} kegiatan, s.d. {BULAN[sd - 1]} {th}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Pagu</div><div class="sc-val" title="{rp(pagu)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(pagu)}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Realisasi</div><div class="sc-val g" title="{rp(real)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(real)}</div></div>'
+                f'<div class="sc-stat"><div class="sc-lab">Sisa</div><div class="sc-val m" title="{rp(pagu - real)}" style="font-size:1.25rem;white-space:nowrap">{rp_ringkas(pagu - real)}</div></div>'
+                '</div>', unsafe_allow_html=True)
+            # grafik per periode
+            if mode == "Bulan":
+                per = [(BLN3[m - 1], m, m) for m in range(1, sd + 1)]
+            else:
+                per = [(f"TW {ROMAWI[q]}", 3 * q - 2, min(3 * q, sd)) for q in range(1, 5) if 3 * q - 2 <= sd]
+            baris = []
+            for nm, a, z in per:
+                nilai = sum(k.get("real", {}).get(str(m), 0) or 0 for k in daftar for m in range(a, z + 1))
+                baris.append({"Periode": nm, "Realisasi (Rp juta)": round(nilai / 1e6, 2),
+                              "Serapan kumulatif (%)": min(persen_serap(sum(real_sd(k, z) for k in daftar), pagu), 100.0)})
+            dfp = pd.DataFrame(baris)
+            urutan = [b["Periode"] for b in baris]
+            g1, g2 = st.columns(2)
+            with g1:
+                st.markdown("**Realisasi per periode (Rp juta)**")
+                st.vega_lite_chart(dfp, {"mark": {"type": "bar", "color": "#2b7a57"}, "encoding": {
+                    "x": {"field": "Periode", "type": "nominal", "sort": urutan,
+                          "axis": {"title": None, "labelAngle": 0}},
+                    "y": {"field": "Realisasi (Rp juta)", "type": "quantitative", "axis": {"title": None}},
+                    "tooltip": [{"field": "Periode"}, {"field": "Realisasi (Rp juta)", "format": ",.2f"}]},
+                    "width": "container", "height": 280})
+            with g2:
+                st.markdown("**Serapan kumulatif (%)**")
+                grafik_persen(dfp, "Periode", "Serapan kumulatif (%)", urut=urutan)
+            # per bidang
+            st.markdown("**Rekap per bidang**")
+            grup = {}
+            for k in daftar:
+                grup.setdefault(peta_b.get(k.get("bidang"), TANPA), []).append(k)
+            rb = [{"Bidang": nm, "Kegiatan": len(ks), "Pagu": sum(k.get("pagu", 0) for k in ks),
+                   "Realisasi": sum(real_sd(k, sd) for k in ks),
+                   "Sisa": sum(k.get("pagu", 0) - real_sd(k, sd) for k in ks),
+                   "Serapan (%)": persen_serap(sum(real_sd(k, sd) for k in ks), sum(k.get("pagu", 0) for k in ks))}
+                  for nm, ks in sorted(grup.items())]
+            dfb = pd.DataFrame(rb)
+            st.dataframe(dfb, hide_index=True, use_container_width=True, height=(len(dfb) + 1) * 35 + 3,
+                         column_config={c: st.column_config.NumberColumn(format="localized")
+                                        for c in ("Pagu", "Realisasi", "Sisa")}
+                                       | {"Serapan (%)": st.column_config.ProgressColumn(
+                                           "Serapan (%)", format="%.1f%%", min_value=0, max_value=100)})
+            grafik_persen(dfb, "Bidang", "Serapan (%)", horizontal=True, urut="-x",
+                          tinggi=max(140, 44 * len(dfb)))
+            st.markdown("**Per kegiatan**")
+            dfk = pd.DataFrame([{
+                "Kode": k.get("kode", ""), "Kegiatan": k["nama"],
+                "Bidang": peta_b.get(k.get("bidang"), TANPA), "Pagu": k.get("pagu", 0),
+                "Realisasi": real_sd(k, sd), "Sisa": k.get("pagu", 0) - real_sd(k, sd),
+                "Serapan (%)": persen_serap(real_sd(k, sd), k.get("pagu", 0))}
+                for k in sorted(daftar, key=lambda x: (x.get("kode", ""), x["nama"]))])
+            st.dataframe(dfk, hide_index=True, use_container_width=True, height=min(600, (len(dfk) + 1) * 35 + 3),
+                         column_config={c: st.column_config.NumberColumn(format="localized")
+                                        for c in ("Pagu", "Realisasi", "Sisa")}
+                                       | {"Serapan (%)": st.column_config.ProgressColumn(
+                                           "Serapan (%)", format="%.1f%%", min_value=0, max_value=100)})
+
+    if not admin:
+        return
+    with tabs[1]:
+        st.caption(f"Tahun {th}. Isi realisasi per bulan dengan jumlah belanja **bulan itu** (bukan kumulatif). "
+                   "Baris baru ditambah lewat baris kosong di bawah tabel; hapus dengan memilih baris lalu "
+                   "tombol hapus. Filter bidang di atas tidak berlaku di sini.")
+        kolom_df = ["id", "Kode", "Kegiatan", "Bidang", "Pagu"] + BLN3
+        data_ed = [{"id": k["id"], "Kode": k.get("kode", ""), "Kegiatan": k["nama"],
+                    "Bidang": peta_b.get(k.get("bidang"), ""), "Pagu": k.get("pagu", 0),
+                    **{BLN3[m - 1]: k.get("real", {}).get(str(m)) for m in range(1, 13)}}
+                   for k in sorted(semua, key=lambda x: (x.get("kode", ""), x["nama"]))]
+        df_ed = pd.DataFrame(data_ed, columns=kolom_df)
+        angka_cfg = lambda judul, **kw: st.column_config.NumberColumn(judul, min_value=0, step=1, format="localized", **kw)
+        cfg = {"id": None, "Kode": st.column_config.TextColumn("Kode", width="small"),
+               "Kegiatan": st.column_config.TextColumn("Kegiatan", width="medium", required=True),
+               "Bidang": st.column_config.SelectboxColumn("Bidang", options=[b["nama"] for b in D["bidang"]],
+                                                          width="medium"),
+               "Pagu": angka_cfg("Pagu", width="medium")}
+        cfg.update({b: angka_cfg(b, width="small") for b in BLN3})
+        hasil = st.data_editor(df_ed, column_config=cfg, num_rows="dynamic", hide_index=True,
+                               use_container_width=True, key=f"ed_ang_{th}_{versi()}")
+        if st.button("Simpan perubahan", type="primary", key="ang_simpan"):
+            galat, baru, kode_lihat = [], [], set()
+            lama = {k["id"]: k for k in semua}
+            bid_id = {b["nama"]: b["id"] for b in D["bidang"]}
+            for i, r in hasil.iterrows():
+                if r.drop("id").isna().all() or (pd.isna(r["Kegiatan"]) and r.drop(["id", "Kegiatan"]).isna().all()):
+                    continue
+                no = f"Baris {i + 1}"
+                nama = "" if pd.isna(r["Kegiatan"]) else " ".join(str(r["Kegiatan"]).split())
+                if not nama:
+                    galat.append(f"{no}: nama kegiatan kosong")
+                    continue
+                kode = "" if pd.isna(r["Kode"]) else str(r["Kode"]).strip()
+                if kode and _nrm(kode) in kode_lihat:
+                    galat.append(f"{no}: kode {kode} dobel")
+                kode_lihat.add(_nrm(kode))
+                kid = None if pd.isna(r["id"]) else r["id"]
+                k = dict(lama.get(kid, {"id": uuid.uuid4().hex[:8], "tahun": th}))
+                k.update({"kode": kode, "nama": nama,
+                          "pagu": 0 if pd.isna(r["Pagu"]) else int(round(float(r["Pagu"])))})
+                b = "" if pd.isna(r["Bidang"]) else r["Bidang"]
+                if b:
+                    k["bidang"] = bid_id.get(b, "")
+                else:
+                    k.pop("bidang", None)
+                k["real"] = {str(m): int(round(float(r[BLN3[m - 1]]))) for m in range(1, 13)
+                             if not pd.isna(r[BLN3[m - 1]])}
+                baru.append(k)
+            if galat:
+                for g in galat:
+                    st.error(g)
+            else:
+                D["anggaran"] = [k for k in D["anggaran"] if k["tahun"] != th] + baru
+                selesai_simpan(f"Anggaran {th} diperbarui ({len(baru)} kegiatan)")
+
+    with tabs[2]:
+        st.caption(f"Impor ke tahun **{th}**. Unduh templat, isi, lalu unggah. Hasilnya bisa diperiksa di "
+                   "pratinjau sebelum disimpan.")
+        u1, u2 = st.columns(2)
+        xl = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        u1.download_button("Unduh templat kosong", buat_excel_anggaran(th, False), file_name="templat-anggaran.xlsx",
+                           icon=":material/download:", mime=xl)
+        u2.download_button(f"Unduh data {th} saat ini", buat_excel_anggaran(th, True),
+                           file_name=f"anggaran-{th}.xlsx", icon=":material/download:", mime=xl,
+                           disabled=not semua)
+        berkas = st.file_uploader("File Excel (.xlsx)", type=["xlsx"], key=f"ang_berkas_{versi()}")
+        o1, o2 = st.columns(2)
+        kum = o1.radio("Angka bulan (Jan sampai Des) di Excel adalah",
+                       ["Realisasi bulan itu", "Kumulatif sampai bulan itu"], key="ang_kum") == "Kumulatif sampai bulan itu"
+        perb = o2.checkbox("Perbarui kegiatan yang sudah ada", value=True, key="ang_perb",
+                           help="Dicocokkan lewat Kode, atau nama kegiatan kalau Kode kosong. Sel kosong tidak mengubah data.")
+        buat_b = o2.checkbox("Buat bidang yang belum ada", value=True, key="ang_buatb")
+        if berkas is not None:
+            baris, galat_file = baca_excel_anggaran(berkas)
+            if galat_file:
+                st.error(galat_file)
+            elif not baris:
+                st.warning("Tidak ada baris data di file itu.")
+            else:
+                rencana = rencana_anggaran(baris, th, perb, buat_b, kum)
+                jml = {s_: sum(r["status"] == s_ for r in rencana) for s_ in ("Baru", "Perbarui", "Lewati", "Galat")}
+                st.markdown(f"**{jml['Baru']}** baru · **{jml['Perbarui']}** diperbarui · "
+                            f"**{jml['Lewati']}** dilewati · **{jml['Galat']}** galat")
+                st.dataframe(pd.DataFrame([
+                    {"Baris": r["baris"], "Status": r["status"], "Kode": r["nilai"].get("kode", ""),
+                     "Kegiatan": r["nilai"].get("nama", ""), "Pagu": r["nilai"].get("pagu"),
+                     "Realisasi (jumlah bulan terisi)": sum(r["nilai"]["real"].values()),
+                     "Catatan": r["catatan"]} for r in rencana]), hide_index=True, use_container_width=True)
+                n_ok = jml["Baru"] + jml["Perbarui"]
+                if st.button(f"Impor {n_ok} kegiatan", type="primary", disabled=n_ok == 0, key="ang_impor"):
+                    n = terapkan_anggaran(rencana, th)
+                    selesai_simpan(f"Impor {n} kegiatan anggaran {th} dari Excel")
+
+
+if halaman == ANGGARAN_HAL:
+    halaman_anggaran()
 if adalah_admin() and halaman == "Pegawai":
     halaman_pegawai()
 if adalah_admin() and halaman == "Bidang":
