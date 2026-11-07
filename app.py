@@ -2465,10 +2465,34 @@ def halaman_pegawai():
                             selesai_simpan(f"Impor {n} pegawai dari Excel")
             if not D["pekerja"]:
                 st.write("Belum ada pegawai.")
-            cari = " ".join(st.text_input(
+            KOL_PG = [("no", "No.", 1.2), ("nip", "NIP", 2.7), ("nama", "Nama Pegawai", 4.2),
+                      ("jabatan", "Jabatan", 3.0), ("bidang", "Bidang / Sub bidang", 2.6),
+                      ("golongan", "Golongan", 1.7), ("eselon", "Eselon", 1.4),
+                      ("jenis_jabatan", "Jenis jabatan", 2.0), ("jk", "Jenis kelamin", 2.0),
+                      ("status_pegawai", "Status pegawai", 1.8), ("tgl_masuk", "Tanggal masuk", 2.2),
+                      ("tgl_pensiun", "Tanggal pensiun", 2.2), ("ikut_wfa", "Ikut WFA", 1.5)]
+            PILIHAN_KOL = [(k, j) for k, j, _ in KOL_PG if k != "nama"]
+            BAWAAN_KOL = ["no", "nip", "jabatan", "bidang"]
+            def simpan_kolom(isi=None):
+                if isi is not None:
+                    st.session_state.pg_kolom = list(isi)
+                st.session_state.pg_kolom_simpan = list(st.session_state.pg_kolom)
+
+            if "pg_kolom" not in st.session_state:   # ingat pilihan walau pindah menu
+                st.session_state.pg_kolom = list(st.session_state.get("pg_kolom_simpan", BAWAAN_KOL))
+            q1, q2 = st.columns([5, 1.4], vertical_alignment="center")
+            cari = " ".join(q1.text_input(
                 "Pencarian", key="pg_cari", icon=":material/search:",
                 placeholder="Cari nama, NIP, jabatan, atau bidang...",
                 label_visibility="collapsed").lower().split())
+            with q2.popover("Kolom", icon=":material/view_column:", use_container_width=True):
+                st.caption("Pilih kolom yang ditampilkan. Nama pegawai selalu tampil.")
+                st.multiselect("Kolom yang ditampilkan", [k for k, _ in PILIHAN_KOL],
+                               key="pg_kolom", label_visibility="collapsed",
+                               format_func=dict(PILIHAN_KOL).get, placeholder="Pilih kolom",
+                               on_change=simpan_kolom)
+                st.button("Kembalikan ke bawaan", key="pg_kolom_reset", use_container_width=True,
+                          on_click=simpan_kolom, args=(BAWAAN_KOL,))
             hitung = {}
             for x in D["pekerja"]:
                 hitung.setdefault(" ".join(x["nama"].lower().split()), []).append(x)
@@ -2478,22 +2502,46 @@ def halaman_pegawai():
             if ganda:
                 st.warning("Ada data yang tampak ganda (nama atau NIP sama): " + ", ".join(ganda)
                            + ". Ubah atau hapus salah satunya.")
-            lebar = [1.2, 2.7, 4.2, 3.0, 2.2, 1.7]
-            kolom = [("no", "No."), ("nip", "NIP"), ("nama", "Nama Pegawai"),
-                     ("jabatan", "Jabatan"), ("bidang", "Bidang / Sub bidang")]
+            tampil = [(k, j, w) for k, j, w in KOL_PG
+                      if k == "nama" or k in st.session_state.pg_kolom]
+            kode_tampil = [k for k, _, _ in tampil]
+            lebar = [w for _, _, w in tampil] + [1.7]
             kini, naik = st.session_state.get("pg_urut", ("no", True))
+            if kini not in kode_tampil:
+                kini, naik = "nama", True
             kepala = st.columns(lebar)
-            for kol, (kode, judul) in zip(kepala, kolom):
+            for kol, (kode, judul, _) in zip(kepala, tampil):
                 tanda = ("▲" if naik else "▼") if kode == kini else "⇅"
                 kol.button(f"{judul}  {tanda}", key=f"thead_{kode}", on_click=cb_urut, args=(kode,))
-            kepala[5].markdown('<div class="thead">#</div>', unsafe_allow_html=True)
+            kepala[-1].markdown('<div class="thead">#</div>', unsafe_allow_html=True)
+
+            def tgl_teks(v):
+                d = ke_tgl(v)
+                return fmt(d) if d else ""
+
+            def isi_kolom(kode, p, no):
+                if kode == "no":
+                    return f"{no}."
+                if kode == "bidang":
+                    return nama_unit(p) if D["bidang"] else ""
+                if kode == "status_pegawai":
+                    return status_peg(p)
+                if kode == "ikut_wfa":
+                    return "Ya" if ikut_wfa(p) else "Tidak"
+                if kode in ("tgl_masuk", "tgl_pensiun"):
+                    return tgl_teks(p.get(kode))
+                return str(p.get(kode, "") or "")
+
             kunci_urut = {
                 "no": lambda x: x["nama"].lower(),
-                "nip": lambda x: "".join(str(x.get("nip", "")).split()),
                 "nama": lambda x: x["nama"].lower(),
+                "nip": lambda x: "".join(str(x.get("nip", "")).split()),
                 "jabatan": lambda x: (x.get("jabatan", "") == "", x.get("jabatan", "").lower()),
                 "bidang": lambda x: (nama_unit(x).lower(), x["nama"].lower()),
-            }[kini]
+            }.get(kini) or (lambda x: (isi_kolom(kini, x, 0) == "", isi_kolom(kini, x, 0).lower(),
+                                       x["nama"].lower()))
+            if kini in ("tgl_masuk", "tgl_pensiun"):
+                kunci_urut = lambda x: (not x.get(kini), str(x.get(kini) or ""), x["nama"].lower())
             urut = sorted(D["pekerja"], key=kunci_urut, reverse=not naik)
             if cari:
                 urut = [x for x in urut if cari in " ".join(
@@ -2503,15 +2551,15 @@ def halaman_pegawai():
             for no, p in enumerate(urut, 1):
                 st.markdown('<div class="garis"></div>', unsafe_allow_html=True)
                 k = st.columns(lebar, vertical_alignment="center")
-                k[0].write(f"{no}.")
-                k[1].write(p.get("nip", ""))
-                k[2].markdown(f"{html.escape(nama_lengkap(p))}"
-                              + (f" · {status_peg(p)}" if status_peg(p) else "")
-                              + ("" if aktif(p) else " *(nonaktif)*")
-                              + ("" if ikut_wfa(p) else " *(tidak WFA)*"))
-                k[3].write(p.get("jabatan", ""))
-                k[4].write(nama_unit(p) if D["bidang"] else "")
-                t1, t2 = k[5].columns(2)
+                for kol, kode in zip(k, kode_tampil):
+                    if kode == "nama":
+                        kol.markdown(f"{html.escape(nama_lengkap(p))}"
+                                     + (f" · {status_peg(p)}" if status_peg(p) and "status_pegawai" not in kode_tampil else "")
+                                     + ("" if aktif(p) else " *(nonaktif)*")
+                                     + ("" if ikut_wfa(p) or "ikut_wfa" in kode_tampil else " *(tidak WFA)*"))
+                    else:
+                        kol.write(isi_kolom(kode, p, no))
+                t1, t2 = k[-1].columns(2)
                 t1.button("✏️", key=f"pgedit_{p['id']}", help="Ubah",
                           on_click=atur, args=("pg_mode", p["id"]))
                 t2.button("🗑️", key=f"pghapus_{p['id']}", help="Hapus",
@@ -2788,7 +2836,9 @@ def halaman_bidang():
 
 
 def daftar_libur():
-    with st.expander(f"Tanggal dikecualikan ({len(D['libur'])})", expanded=True):
+    with st.container(key="kartu_bd_libur"):
+        st.markdown(f'<div class="bd-judul">Tanggal dikecualikan</div>'
+                    f'<div class="bd-meta">{len(D["libur"])} tanggal</div>', unsafe_allow_html=True)
         st.caption("Tanggal merah atau hari lain yang tidak perlu diisi. "
                    "Tidak dihitung sebagai belum mengisi.")
         if not D["libur"]:
@@ -2815,7 +2865,8 @@ def daftar_libur():
 
 
 def cadangan():
-    with st.expander("Cadangan dan pindah data", expanded=True):
+    with st.container(key="kartu_bd_cadangan"):
+        st.markdown('<div class="bd-judul">Cadangan dan pindah data</div>', unsafe_allow_html=True)
         st.caption("Unduh seluruh data sebagai file, atau muat file data dari tempat lain. "
                    "Memuat file akan **mengganti semua data** yang ada sekarang.")
         st.download_button("Unduh data.json",
