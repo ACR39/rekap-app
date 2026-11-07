@@ -100,6 +100,7 @@ st.markdown("""
 .on-staf{border-top:1px dashed #e3e7ee;padding:.4rem .7rem .5rem;text-align:left;background:#f8fafc}
 .on-st{font-size:.68rem;font-weight:700;color:#64748b;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.15rem}
 .on-s{font-size:.8rem;color:#1f2937;padding:.08rem 0}
+.on-ringkas{font-size:.76rem;color:#64748b;text-align:center;padding:.3rem .7rem}
 .st-key-kartu_filter,.st-key-kartu_filter_tw,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
@@ -2782,11 +2783,13 @@ def _orang_html(p: dict, jabatan: str = "") -> str:
             + (f'<div class="on-nip">NIP {nip}</div>' if nip else ""))
 
 
-def _unit_html(jenis: str, nama: str, kepala, staf: list, jabatan_kepala: str = "") -> str:
+def _unit_html(jenis: str, nama: str, kepala, staf: list, jabatan_kepala: str = "", rinci: bool = True) -> str:
     h = f'<div class="on on-{jenis}"><div class="on-unit">{html.escape(nama)}</div><div class="on-kep">'
     h += _orang_html(kepala, jabatan_kepala) if kepala else '<div class="on-kosong">Belum ditentukan</div>'
     h += "</div>"
-    if staf:
+    if staf and not rinci:
+        h += f'<div class="on-staf on-ringkas">{len(staf)} staf</div>'
+    elif staf:
         h += (f'<div class="on-staf"><div class="on-st">Staf ({len(staf)})</div>'
               + "".join(f'<div class="on-s">{html.escape(nama_lengkap(p))}</div>' for p in staf) + "</div>")
     return h + "</div>"
@@ -2796,7 +2799,7 @@ def urut_nama(ps):
     return sorted(ps, key=lambda x: x["nama"].lower())
 
 
-def bagan_organisasi() -> tuple:
+def bagan_organisasi(tampil_staf: bool = True) -> tuple:
     """(html bagan, daftar pegawai yang belum ditempatkan)."""
     org = D.get("organisasi") or {}
     pim = next((p for p in D["pekerja"] if p["id"] == org.get("pimpinan") and aktif(p)), None)
@@ -2814,9 +2817,9 @@ def bagan_organisasi() -> tuple:
             asub = [p for p in ang if p.get("subbidang") == x["id"] and sub_dari(p)]
             ks = kepala_dari(x, tanpa_kb(asub))
             staf = [p for p in tanpa_kb(asub) if not ks or p["id"] != ks["id"]]
-            sub_html += "<li>" + _unit_html("sub", x["nama"], ks, staf) + "</li>"
+            sub_html += "<li>" + _unit_html("sub", x["nama"], ks, staf, rinci=tampil_staf) + "</li>"
         langsung = tanpa_kb([p for p in ang if sub_dari(p) is None])
-        anak += ("<li>" + _unit_html("bid", b["nama"], kb, langsung, (kb.get("jabatan") or "Kepala") if kb else "")
+        anak += ("<li>" + _unit_html("bid", b["nama"], kb, langsung, (kb.get("jabatan") or "Kepala") if kb else "", tampil_staf)
                  + (f"<ul>{sub_html}</ul>" if sub_html else "") + "</li>")
     bagan = (f'<div class="org"><div class="org-in"><ul><li>{akar}'
              + (f"<ul>{anak}</ul>" if anak else "") + "</li></ul></div></div>")
@@ -2831,9 +2834,12 @@ def halaman_organisasi():
     if not D["bidang"]:
         st.info("Belum ada bidang. Buat bidang di Master data > Bidang dan sub bidang, tempatkan pegawai "
                 "di formulir pegawai, lalu tentukan kepalanya.")
-    tampilan = st.radio("Tampilan", ["Bagan", "Daftar"], horizontal=True, key="org_tampil",
+    o1, o2 = st.columns([1, 1], vertical_alignment="center")
+    tampilan = o1.radio("Tampilan", ["Bagan", "Daftar"], horizontal=True, key="org_tampil",
                         label_visibility="collapsed")
-    bagan, belum = bagan_organisasi()
+    tampil_staf = o2.toggle("Tampilkan staf", value=True, key="org_staf",
+                            help="Matikan untuk hanya menampilkan kepala; staf cukup ditulis jumlahnya.")
+    bagan, belum = bagan_organisasi(tampil_staf)
     if tampilan == "Bagan":
         st.markdown(bagan, unsafe_allow_html=True)
     else:
@@ -2850,7 +2856,8 @@ def halaman_organisasi():
                     st.caption("Belum ada pegawai di bidang ini.")
                     continue
                 baris = []
-                for p in sorted(ang, key=lambda x: (0 if kb and x["id"] == kb["id"] else
+                for p in sorted([x for x in ang if tampil_staf or peran_unit(x).startswith("Kepala")],
+                                key=lambda x: (0 if kb and x["id"] == kb["id"] else
                                                     1 if peran_unit(x).startswith("Kepala") else 2,
                                                     nama_sub(x).lower(), x["nama"].lower())):
                     baris.append({"Peran": peran_unit(p), "Nama": nama_lengkap(p), "NIP": p.get("nip", ""),
