@@ -73,6 +73,33 @@ st.markdown("""
 .bd-titik{width:7px;height:7px;border-radius:50%;background:#34a874;flex:none}
 .bd-meta2{margin-left:auto;font-size:.76rem;color:#64748b;background:#f1f5f9;border-radius:999px;padding:.05rem .6rem}
 [class*="st-key-kartu_bd"] [data-testid="stMetric"]{background:transparent}
+.bd-kep{font-size:.76rem;color:#256b4a;background:#e8f3ec;border-radius:999px;padding:.05rem .6rem}
+.org{overflow-x:auto;padding:.4rem 0 1rem}
+.org-in{width:max-content;margin:0 auto}
+.org ul{display:flex;justify-content:center;margin:0;padding:22px 0 0;list-style:none;position:relative}
+.org-in > ul{padding-top:0}
+.org li{position:relative;padding:22px 7px 0;margin:0 !important;list-style:none;text-align:center}
+.org-in > ul > li{padding-top:0}
+.org li::before,.org li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:22px;border-top:2px solid #cbd5e1}
+.org li::after{right:auto;left:50%;border-left:2px solid #cbd5e1}
+.org li:only-child::before,.org li:only-child::after{display:none}
+.org li:only-child{padding-top:0}
+.org li:first-child::before,.org li:last-child::after{border:0 none}
+.org li:last-child::before{border-right:2px solid #cbd5e1;border-radius:0 8px 0 0}
+.org li:first-child::after{border-radius:8px 0 0 0}
+.org ul ul::before{content:"";position:absolute;top:0;left:50%;border-left:2px solid #cbd5e1;width:0;height:22px}
+.on{display:inline-block;vertical-align:top;min-width:180px;max-width:240px;background:#fff;border:1px solid #d5dbe5;border-radius:12px;box-shadow:0 1px 3px rgba(16,24,40,.08);text-align:center;overflow:hidden}
+.on-unit{font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:.35rem .6rem;color:#fff;background:#256b4a}
+.on-top .on-unit{background:#14352a;font-size:.78rem}
+.on-sub .on-unit{background:#4b8f6d}
+.on-kep{padding:.55rem .7rem .5rem}
+.on-nama{font-weight:700;font-size:.9rem;color:#14352a;line-height:1.25}
+.on-jab{font-size:.76rem;color:#475569;margin-top:.1rem}
+.on-nip{font-size:.7rem;color:#94a3b8;margin-top:.1rem}
+.on-kosong{font-size:.78rem;color:#94a3b8;font-style:italic}
+.on-staf{border-top:1px dashed #e3e7ee;padding:.4rem .7rem .5rem;text-align:left;background:#f8fafc}
+.on-st{font-size:.68rem;font-weight:700;color:#64748b;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.15rem}
+.on-s{font-size:.8rem;color:#1f2937;padding:.08rem 0}
 .st-key-kartu_filter,.st-key-kartu_filter_tw,.st-key-kartu_tabel,.st-key-kartu_pegawai,[class*="st-key-kartu_g"]{background:#fff;border:1px solid #e3e7ee;border-radius:16px;
   padding:1.1rem 1.2rem;box-shadow:0 1px 3px rgba(16,24,40,.06);margin-bottom:.9rem}
 [data-testid="stExpander"]{background:#fff;border-radius:14px !important;box-shadow:0 1px 3px rgba(16,24,40,.06)}
@@ -340,17 +367,19 @@ def fmt(d: date) -> str:
 
 def data_kosong() -> dict:
     return {
-        "bidang": [],   # [{"id","nama"}]
+        "bidang": [],   # [{"id","nama","kepala"(id pegawai, opsional)}]
         "pekerja": [],  # [{"id","nama","bidang"(opsional, id bidang),"subbidang"(opsional)}]
         "kategori": [{"id": "k1", "nama": "Laporan harian"}],
-        "subbidang": [],  # [{"id","nama","bidang"(id bidang induk)}]
+        "subbidang": [],  # [{"id","nama","bidang"(id bidang induk),"kepala"(id pegawai, opsional)}]
         "libur": {},   # {"2026-10-23": "Keterangan"}
         "isian": {},   # {"2026-10-16": {"<id kategori>": ["<id pekerja>", ...]}}
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
-        "program": [],     # [{"id","kode","nama"}]  (struktur anggaran)
-        "kegiatan": [],    # [{"id","kode","nama","program"}]
+        "organisasi": {},  # {"nama","pimpinan"(id pegawai),"jabatan"}  (puncak bagan struktur organisasi)
+        "sasaran": [],     # [{"id","no","nama","indikator":[{"id","nama"}]}]  (sasaran strategis)
+        "program": [],     # [{"id","kode","nama","sasaran"(id, opsional)}]  (struktur anggaran)
+        "kegiatan": [],    # [{"id","kode","nama","program","sasaran"|"indikator"(id, opsional)}]
         "subkegiatan": [],  # [{"id","kode","nama","kegiatan","bidang"(opsional)}]
         "anggaran": [],  # [{"id","tahun","kode","nama","bidang"(id),"pagu","real":{"1":rupiah,...}}]
         "dukung": {},    # {"<id baris>": {"ket": "teks", "link": "https://..."}}  (Data dukung evaluasi)
@@ -1194,17 +1223,18 @@ if not cfg_github():
                "dimulai ulang. Isi pengaturan GitHub (lihat README) agar data permanen.")
 
 UTAMA = ["Per tanggal", "Belum mengisi", "Sudah mengisi", "Rekap cuti dan DL"]
-MASTER = ["Pegawai", "Bidang dan sub bidang", "Struktur anggaran", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
+MASTER = ["Pegawai", "Bidang dan sub bidang", "Sasaran strategis", "Struktur anggaran", "Tanggal dikecualikan", "Komponen data dukung", "Cadangan dan pindah data"]
 TRIWULAN = ["Isian triwulan"]   # menu "Rekap triwulan" disembunyikan dulu
 DUKUNG_HAL = "Data dukung evaluasi"
 STAT_HAL = "Statistik pegawai"
+ORG_HAL = "Struktur organisasi"
 ANGGARAN_HAL = "Realisasi anggaran"
-HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [STAT_HAL, ANGGARAN_HAL, DUKUNG_HAL] + (MASTER if adalah_admin() else [])
+HALAMAN = ["Beranda"] + UTAMA + TRIWULAN + [STAT_HAL, ORG_HAL, ANGGARAN_HAL, DUKUNG_HAL] + (MASTER if adalah_admin() else [])
 if st.session_state.get("halaman") not in HALAMAN:
     st.session_state.halaman = "Beranda"
 halaman = st.session_state.halaman
-IKON = {"Realisasi anggaran": "payments", "Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
-        "Pegawai": "groups", "Bidang dan sub bidang": "account_tree", "Struktur anggaran": "schema", "Kategori": "sell",
+IKON = {"Struktur organisasi": "lan", "Realisasi anggaran": "payments", "Statistik pegawai": "bar_chart", "Isian triwulan": "checklist", "Data dukung evaluasi": "folder_open", "Beranda": "home", "Per tanggal": "event_note", "Belum mengisi": "pending_actions", "Sudah mengisi": "task_alt", "Rekap cuti dan DL": "beach_access",
+        "Pegawai": "groups", "Bidang dan sub bidang": "account_tree", "Sasaran strategis": "flag", "Struktur anggaran": "schema", "Kategori": "sell",
         "Tanggal dikecualikan": "event_busy", "Komponen data dukung": "fact_check", "Cadangan dan pindah data": "backup"}
 LOGO = ('<svg width="38" height="38" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg">'
         '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
@@ -1234,6 +1264,7 @@ with st.sidebar:
         for h in TRIWULAN:
             tombol_nav(h)
     tombol_nav(STAT_HAL)
+    tombol_nav(ORG_HAL)
     tombol_nav(ANGGARAN_HAL)
     tombol_nav(DUKUNG_HAL)
     if adalah_admin():
@@ -1260,18 +1291,20 @@ DESKRIPSI = {
     "Sudah mengisi": "Daftar pegawai yang lengkap mengisi di setiap Jumat dalam rentang tanggal.",
     "Rekap cuti dan DL": "Rekap tanggal cuti dan dinas luar per pegawai.",
     "Isian triwulan": "Tandai kelengkapan isian triwulan tiap pegawai.",
-    ANGGARAN_HAL: "Pagu, realisasi, dan serapan anggaran per triwulan, menurut program, kegiatan, sub kegiatan, dan bidang.",
+    ANGGARAN_HAL: "Pagu, realisasi, dan serapan anggaran per triwulan, menurut sasaran, indikator kinerja, program, kegiatan, sub kegiatan, dan bidang.",
+    ORG_HAL: "Bagan bidang dan sub bidang, lengkap dengan kepala dan stafnya.",
     STAT_HAL: "Jumlah, penambahan, dan pensiun pegawai per bulan atau triwulan, menurut jenis kelamin.",
     DUKUNG_HAL: "Data pendukung, bukti dukung, dan tautan untuk evaluasi SAKIP.",
     "Pegawai": "Kelola data pegawai, bidang, dan sub bidangnya.",
     "Bidang dan sub bidang": "Kelola bidang beserta sub bidang di bawahnya.",
+    "Sasaran strategis": "Kelola sasaran strategis dan indikator kinerjanya, beserta program dan kegiatan yang menunjangnya.",
     "Struktur anggaran": "Atur program, kegiatan, dan sub kegiatan beserta sambungannya.",
     "Tanggal dikecualikan": "Hari libur atau tanggal yang tidak dihitung dalam rekap.",
     "Komponen data dukung": "Atur komponen dan baris pada tabel data dukung evaluasi.",
     "Cadangan dan pindah data": "Unduh cadangan data atau muat data dari berkas.",
 }
 _grup = ("MASTER" if halaman in MASTER else ("KETERISIAN TRIWULAN" if halaman in TRIWULAN else
-         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else ("KEPEGAWAIAN" if halaman == STAT_HAL else ("KEUANGAN" if halaman == ANGGARAN_HAL else "AKTIVITAS WFA"))))))
+         ("RINGKASAN" if halaman == "Beranda" else ("EVALUASI SAKIP" if halaman == DUKUNG_HAL else ("KEPEGAWAIAN" if halaman in (STAT_HAL, ORG_HAL) else ("KEUANGAN" if halaman == ANGGARAN_HAL else "AKTIVITAS WFA"))))))
 _u = st.session_state.get("user")
 _chip = ""
 if _u:
@@ -2470,7 +2503,8 @@ def halaman_pegawai():
                       ("golongan", "Golongan", 1.7), ("eselon", "Eselon", 1.4),
                       ("jenis_jabatan", "Jenis jabatan", 2.0), ("jk", "Jenis kelamin", 2.0),
                       ("status_pegawai", "Status pegawai", 1.8), ("tgl_masuk", "Tanggal masuk", 2.2),
-                      ("tgl_pensiun", "Tanggal pensiun", 2.2), ("ikut_wfa", "Ikut WFA", 1.5)]
+                      ("tgl_pensiun", "Tanggal pensiun", 2.2), ("ikut_wfa", "Ikut WFA", 1.5),
+                      ("peran", "Peran dalam unit", 2.6)]
             PILIHAN_KOL = [(k, j) for k, j, _ in KOL_PG if k != "nama"]
             BAWAAN_KOL = ["no", "nip", "jabatan", "bidang"]
             def simpan_kolom(isi=None):
@@ -2526,6 +2560,8 @@ def halaman_pegawai():
                     return nama_unit(p) if D["bidang"] else ""
                 if kode == "status_pegawai":
                     return status_peg(p)
+                if kode == "peran":
+                    return peran_unit(p)
                 if kode == "ikut_wfa":
                     return "Ya" if ikut_wfa(p) else "Tidak"
                 if kode in ("tgl_masuk", "tgl_pensiun"):
@@ -2700,6 +2736,150 @@ def halaman_pegawai():
                     selesai_simpan("Tersimpan.", pg_mode=None)
 
 
+# ------------------------------------------------------------ struktur organisasi
+# Bidang dan sub bidang punya "kepala" (id pegawai yang bertugas di unit itu). Staf = pegawai lain di unit itu.
+# D["organisasi"] = {"nama","pimpinan"(id pegawai),"jabatan"}  -> puncak bagan (opsional)
+def anggota_bidang(bid: str) -> list:
+    return [p for p in D["pekerja"] if aktif(p) and p.get("bidang") == bid]
+
+
+def anggota_sub(sid: str) -> list:
+    return [p for p in D["pekerja"] if aktif(p) and p.get("subbidang") == sid and sub_dari(p)]
+
+
+def kepala_dari(unit: dict, anggota: list):
+    return next((p for p in anggota if p["id"] == unit.get("kepala")), None)
+
+
+def peran_unit(p: dict) -> str:
+    org = D.get("organisasi") or {}
+    if org.get("pimpinan") == p["id"]:
+        return org.get("jabatan") or "Pimpinan"
+    b = next((x for x in D["bidang"] if x["id"] == p.get("bidang")), None)
+    if not b:
+        return ""
+    if b.get("kepala") == p["id"]:
+        return f"Kepala {b['nama']}"
+    sb = sub_dari(p)
+    if sb and sb.get("kepala") == p["id"]:
+        return f"Kepala {sb['nama']}"
+    return "Staf"
+
+
+def pilih_kepala(wadah, label: str, anggota: list, awal: str, kunci: str):
+    ids = [""] + [p["id"] for p in sorted(anggota, key=lambda x: x["nama"].lower())]
+    peta = {p["id"]: nama_lengkap(p) for p in anggota}
+    return wadah.selectbox(label, ids, index=idx(ids, awal), key=kunci,
+                           format_func=lambda i: "Belum ditentukan" if not i else peta[i],
+                           help=None if anggota else "Tempatkan pegawai di unit ini dulu lewat Master data > Pegawai.")
+
+
+def _orang_html(p: dict, jabatan: str = "") -> str:
+    jab = html.escape(jabatan or p.get("jabatan", "") or "")
+    nip = html.escape(str(p.get("nip", "") or ""))
+    return (f'<div class="on-nama">{html.escape(nama_lengkap(p))}</div>'
+            + (f'<div class="on-jab">{jab}</div>' if jab else "")
+            + (f'<div class="on-nip">NIP {nip}</div>' if nip else ""))
+
+
+def _unit_html(jenis: str, nama: str, kepala, staf: list, jabatan_kepala: str = "") -> str:
+    h = f'<div class="on on-{jenis}"><div class="on-unit">{html.escape(nama)}</div><div class="on-kep">'
+    h += _orang_html(kepala, jabatan_kepala) if kepala else '<div class="on-kosong">Belum ditentukan</div>'
+    h += "</div>"
+    if staf:
+        h += (f'<div class="on-staf"><div class="on-st">Staf ({len(staf)})</div>'
+              + "".join(f'<div class="on-s">{html.escape(nama_lengkap(p))}</div>' for p in staf) + "</div>")
+    return h + "</div>"
+
+
+def urut_nama(ps):
+    return sorted(ps, key=lambda x: x["nama"].lower())
+
+
+def bagan_organisasi() -> tuple:
+    """(html bagan, daftar pegawai yang belum ditempatkan)."""
+    org = D.get("organisasi") or {}
+    pim = next((p for p in D["pekerja"] if p["id"] == org.get("pimpinan") and aktif(p)), None)
+    akar = _unit_html("top", org.get("nama") or "Organisasi", pim, [], org.get("jabatan", ""))
+    anak = ""
+    for b in D["bidang"]:
+        ang = [p for p in anggota_bidang(b["id"]) if not pim or p["id"] != pim["id"]]
+        kb = kepala_dari(b, ang)
+        def tanpa_kb(ps):
+            return urut_nama([p for p in ps if not kb or p["id"] != kb["id"]])
+        sub_html = ""
+        for x in D["subbidang"]:
+            if x["bidang"] != b["id"]:
+                continue
+            asub = [p for p in ang if p.get("subbidang") == x["id"] and sub_dari(p)]
+            ks = kepala_dari(x, tanpa_kb(asub))
+            staf = [p for p in tanpa_kb(asub) if not ks or p["id"] != ks["id"]]
+            sub_html += "<li>" + _unit_html("sub", x["nama"], ks, staf) + "</li>"
+        langsung = tanpa_kb([p for p in ang if sub_dari(p) is None])
+        anak += ("<li>" + _unit_html("bid", b["nama"], kb, langsung, (kb.get("jabatan") or "Kepala") if kb else "")
+                 + (f"<ul>{sub_html}</ul>" if sub_html else "") + "</li>")
+    bagan = (f'<div class="org"><div class="org-in"><ul><li>{akar}'
+             + (f"<ul>{anak}</ul>" if anak else "") + "</li></ul></div></div>")
+    ids_b = {b["id"] for b in D["bidang"]}
+    belum = urut_nama([p for p in D["pekerja"] if aktif(p) and p.get("bidang") not in ids_b
+                       and (not pim or p["id"] != pim["id"])])
+    return bagan, belum
+
+
+def halaman_organisasi():
+    org = D.get("organisasi") or {}
+    if not D["bidang"]:
+        st.info("Belum ada bidang. Buat bidang di Master data > Bidang dan sub bidang, tempatkan pegawai "
+                "di formulir pegawai, lalu tentukan kepalanya.")
+    tampilan = st.radio("Tampilan", ["Bagan", "Daftar"], horizontal=True, key="org_tampil",
+                        label_visibility="collapsed")
+    bagan, belum = bagan_organisasi()
+    if tampilan == "Bagan":
+        st.markdown(bagan, unsafe_allow_html=True)
+    else:
+        pim_id = org.get("pimpinan")
+        for b in D["bidang"]:
+            ang = [p for p in anggota_bidang(b["id"]) if p["id"] != pim_id]
+            kb = kepala_dari(b, ang)
+            with st.container(key=f"kartu_bd_org_{b['id']}"):
+                st.markdown(f'<div class="bd-judul">{html.escape(b["nama"])}</div>'
+                            f'<div class="bd-meta">{len(ang)} pegawai · Kepala: '
+                            f'{html.escape(nama_lengkap(kb)) if kb else "belum ditentukan"}</div>',
+                            unsafe_allow_html=True)
+                if not ang:
+                    st.caption("Belum ada pegawai di bidang ini.")
+                    continue
+                baris = []
+                for p in sorted(ang, key=lambda x: (0 if kb and x["id"] == kb["id"] else
+                                                    1 if peran_unit(x).startswith("Kepala") else 2,
+                                                    nama_sub(x).lower(), x["nama"].lower())):
+                    baris.append({"Peran": peran_unit(p), "Nama": nama_lengkap(p), "NIP": p.get("nip", ""),
+                                  "Jabatan": p.get("jabatan", ""), "Sub bidang": nama_sub(p)})
+                st.dataframe(pd.DataFrame(baris), hide_index=True, use_container_width=True,
+                             height=min(420, (len(baris) + 1) * 35 + 3))
+    if belum:
+        st.caption(f"**Belum ditempatkan di bidang ({len(belum)}):** "
+                   + ", ".join(nama_lengkap(p) for p in belum))
+    if adalah_admin():
+        with st.container(key="kartu_bd_org_set"):
+            st.markdown('<div class="bd-judul">Puncak bagan</div>'
+                        '<div class="bd-meta">Nama organisasi dan pimpinan. Kepala bidang dan sub bidang '
+                        'diatur di Master data > Bidang dan sub bidang.</div>', unsafe_allow_html=True)
+            with st.form("org_set", border=False):
+                f1, f2, f3 = st.columns([3, 4, 3])
+                nm = f1.text_input("Nama organisasi", value=org.get("nama", ""), placeholder="Contoh: Dinas Perhubungan")
+                semua = urut_nama([p for p in D["pekerja"] if aktif(p)])
+                ids = [""] + [p["id"] for p in semua]
+                peta = {p["id"]: nama_lengkap(p) for p in semua}
+                pim = f2.selectbox("Pimpinan", ids, index=idx(ids, org.get("pimpinan", "")),
+                                   format_func=lambda i: "Belum ditentukan" if not i else peta[i])
+                jab = f3.text_input("Sebutan jabatan", value=org.get("jabatan", ""), placeholder="Contoh: Kepala Dinas")
+                if st.form_submit_button("Simpan", type="primary"):
+                    D["organisasi"] = {k: v for k, v in (("nama", " ".join(nm.split())), ("pimpinan", pim),
+                                                         ("jabatan", " ".join(jab.split()))) if v}
+                    selesai_simpan("Puncak bagan disimpan.")
+
+
 def halaman_bidang():
     """Bidang dan sub bidangnya dalam satu halaman: satu kartu per bidang."""
     n_bid, n_sub = len(D["bidang"]), len(D["subbidang"])
@@ -2728,6 +2908,8 @@ def halaman_bidang():
             if st.session_state.get("edit_bidang") == b["id"]:
                 baru = c1.text_input("Nama bidang", value=b["nama"], key=f"nm_bidang_{b['id']}",
                                      label_visibility="collapsed")
+                kep = pilih_kepala(c1, "Kepala bidang", anggota_bidang(b["id"]), b.get("kepala", ""),
+                                   f"kep_bidang_{b['id']}")
                 c3.button("Batal", key=f"bt_bidang_{b['id']}", on_click=atur,
                           args=("edit_bidang", None), use_container_width=True)
                 if c2.button("Simpan", key=f"sv_bidang_{b['id']}", type="primary",
@@ -2739,7 +2921,11 @@ def halaman_bidang():
                         st.error("Nama itu sudah ada.")
                     else:
                         b["nama"] = baru
-                        selesai_simpan("Nama bidang diubah.", edit_bidang=None)
+                        if kep:
+                            b["kepala"] = kep
+                        else:
+                            b.pop("kepala", None)
+                        selesai_simpan("Bidang diubah.", edit_bidang=None)
             elif st.session_state.get("hapus_bidang") == b["id"]:
                 c1.markdown(f"Hapus bidang **{html.escape(b['nama'])}**? "
                             f"{len(subs)} sub bidang di bawahnya ikut terhapus"
@@ -2759,9 +2945,11 @@ def halaman_bidang():
                             p.pop("subbidang", None)
                     selesai_simpan("Bidang dihapus.", hapus_bidang=None)
             else:
+                kp = kepala_dari(b, anggota_bidang(b["id"]))
                 c1.markdown(f'<div class="bd-judul">{html.escape(b["nama"])}</div>'
-                            f'<div class="bd-meta">{len(subs)} sub bidang · {n_b} pegawai</div>',
-                            unsafe_allow_html=True)
+                            f'<div class="bd-meta">{len(subs)} sub bidang · {n_b} pegawai · '
+                            + (f'Kepala: {html.escape(nama_lengkap(kp))}' if kp else 'Kepala belum ditentukan')
+                            + '</div>', unsafe_allow_html=True)
                 tombol_aksi(c2, c3, "bidang", b["id"], "edit_bidang", "hapus_bidang")
 
             st.markdown('<div class="bd-garis"></div>', unsafe_allow_html=True)
@@ -2773,6 +2961,8 @@ def halaman_bidang():
                 if st.session_state.get("edit_sub") == x["id"]:
                     baru = s1.text_input("Nama sub bidang", value=x["nama"], key=f"nm_sub_{x['id']}",
                                          label_visibility="collapsed")
+                    kep = pilih_kepala(s1, "Kepala sub bidang", anggota_sub(x["id"]), x.get("kepala", ""),
+                                       f"kep_sub_{x['id']}")
                     s3.button("Batal", key=f"bt_sub_{x['id']}", on_click=atur,
                               args=("edit_sub", None), use_container_width=True)
                     if s2.button("Simpan", key=f"sv_sub_{x['id']}", type="primary",
@@ -2784,7 +2974,11 @@ def halaman_bidang():
                             st.error("Nama itu sudah ada di bidang ini.")
                         else:
                             x["nama"] = baru
-                            selesai_simpan("Nama sub bidang diubah.", edit_sub=None)
+                            if kep:
+                                x["kepala"] = kep
+                            else:
+                                x.pop("kepala", None)
+                            selesai_simpan("Sub bidang diubah.", edit_sub=None)
                 elif st.session_state.get("hapus_sub") == x["id"]:
                     s1.markdown(f"Hapus sub bidang **{html.escape(x['nama'])}**?"
                                 + (f" {n_p} pegawai jadi tanpa sub bidang." if n_p else ""))
@@ -2798,8 +2992,10 @@ def halaman_bidang():
                                 p.pop("subbidang", None)
                         selesai_simpan("Sub bidang dihapus.", hapus_sub=None)
                 else:
+                    ks_ = kepala_dari(x, anggota_sub(x["id"]))
                     s1.markdown(f'<div class="bd-sub"><span class="bd-titik"></span>{html.escape(x["nama"])}'
-                                f'<span class="bd-meta2">{n_p} pegawai</span></div>',
+                                + (f'<span class="bd-kep">Kepala: {html.escape(nama_lengkap(ks_))}</span>' if ks_ else '')
+                                + f'<span class="bd-meta2">{n_p} pegawai</span></div>',
                                 unsafe_allow_html=True)
                     tombol_aksi(s2, s3, "sub", x["id"], "edit_sub", "hapus_sub")
             with st.form(f"tambah_sub_{b['id']}", clear_on_submit=True, border=False):
@@ -2909,7 +3105,7 @@ def cadangan():
 BLN3 = [b[:3] for b in BULAN]
 TW_NAMA = {1: "TW I", 2: "TW II", 3: "TW III", 4: "TW IV"}
 TANPA_PROG, TANPA_KEG = "(Tanpa program)", "(Tanpa kegiatan)"
-TANPA_SAS = "(Tanpa sasaran)"
+TANPA_SAS, TANPA_IND = "(Tanpa sasaran)", "(Tanpa indikator)"
 ALIAS_BULAN = {m: {_nrm(BULAN[m - 1][:3]), _nrm(BULAN[m - 1])} for m in range(1, 13)}
 ALIAS_BULAN[5] |= {"may"}
 ALIAS_BULAN[8] |= {"agt", "agst", "aug"}
@@ -3047,6 +3243,212 @@ def hapus_struktur(level: str, ident: str) -> dict:
     return n
 
 
+# ------------------------------------------------------------ sasaran strategis
+# D["sasaran"]  [{"id","no","nama","indikator":[{"id","nama"}]}]
+# Program   : "sasaran" (id)                      -> seluruh kegiatan di bawahnya ikut sasaran itu
+# Kegiatan  : "sasaran" (id) atau "indikator" (id) -> menimpa pilihan program (kegiatan tertentu)
+def kunci_alami(teks) -> tuple:
+    """Urut alami: 'Sasaran 2' sebelum 'Sasaran 10'."""
+    return tuple((0, int(x)) if x.isdigit() else (1, x.lower())
+                 for x in re.split(r"(\d+)", " ".join(map(str, teks)) if isinstance(teks, (tuple, list)) else str(teks)) if x)
+
+
+def label_sasaran(s: dict) -> str:
+    return f"{s.get('no', '')}. {s['nama']}" if s.get("no") else s["nama"]
+
+
+def urut_sasaran() -> list:
+    return sorted(D["sasaran"], key=lambda s: kunci_alami([s.get("no", ""), s["nama"]]))
+
+
+def tautan_sasaran(k: dict, p: dict):
+    """(sasaran, indikator) yang ditunjang kegiatan k (dengan program p). Kegiatan menimpa program."""
+    peta = {s["id"]: s for s in D["sasaran"]}
+    ind = {i["id"]: (s, i) for s in D["sasaran"] for i in s.get("indikator", [])}
+    if k.get("indikator") in ind:
+        return ind[k["indikator"]]
+    if k.get("sasaran") in peta:
+        return peta[k["sasaran"]], None
+    if p.get("sasaran") in peta:
+        return peta[p["sasaran"]], None
+    return None, None
+
+
+def opsi_tautan() -> dict:
+    """Pilihan 'ditunjang untuk' di form kegiatan: '' (ikut program), 'S:id', 'I:id'."""
+    o = {"": "Ikut sasaran program"}
+    for s in urut_sasaran():
+        o[f"S:{s['id']}"] = f"Sasaran {label_sasaran(s)}"
+        for i in s.get("indikator", []):
+            o[f"I:{i['id']}"] = f"   Indikator: {i['nama']}  (sasaran {s.get('no') or s['nama'][:20]})"
+    return o
+
+
+def nilai_tautan(x: dict) -> str:
+    if x.get("indikator"):
+        return "I:" + x["indikator"]
+    if x.get("sasaran"):
+        return "S:" + x["sasaran"]
+    return ""
+
+
+def terapkan_tautan(x: dict, nilai: str):
+    x.pop("sasaran", None)
+    x.pop("indikator", None)
+    if nilai.startswith("S:"):
+        x["sasaran"] = nilai[2:]
+    elif nilai.startswith("I:"):
+        x["indikator"] = nilai[2:]
+
+
+def migrasi_sasaran():
+    """Program lama dengan sasaran berupa teks -> data sasaran. Aman diulang."""
+    ids = {s["id"] for s in D["sasaran"]}
+    for p in D["program"]:
+        v = p.get("sasaran")
+        if v and v not in ids:
+            s = next((x for x in D["sasaran"] if _nrm(x["nama"]) == _nrm(v)), None)
+            if not s:
+                s = {"id": uuid.uuid4().hex[:8], "no": str(len(D["sasaran"]) + 1), "nama": v, "indikator": []}
+                D["sasaran"].append(s)
+            ids.add(s["id"])
+            p["sasaran"] = s["id"]
+
+
+migrasi_sasaran()
+
+
+def halaman_sasaran():
+    """Sasaran strategis beserta indikator kinerja dan program/kegiatan yang menunjangnya."""
+    prog = {p["id"]: p for p in D["program"]}
+    n_ind = sum(len(s.get("indikator", [])) for s in D["sasaran"])
+    st.caption("Sasaran strategis dan indikator kinerjanya. Hubungkan program ke sasaran (atau kegiatan tertentu "
+               "ke sasaran/indikator) di Master data > Struktur anggaran. Anggaran per sasaran dan per indikator "
+               "dihitung dari sub kegiatan di bawah program atau kegiatan yang menunjangnya.")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Sasaran strategis", len(D["sasaran"]))
+    m2.metric("Indikator kinerja", n_ind)
+    m3.metric("Program/kegiatan terhubung",
+              sum(1 for p in D["program"] if p.get("sasaran")) + sum(1 for k in D["kegiatan"] if k.get("sasaran") or k.get("indikator")))
+
+    def aksi(c_ubah, c_hapus, kunci, id_, k_edit, k_hapus):
+        c_ubah.button("Ubah", key=f"ub_{kunci}_{id_}", on_click=atur, args=(k_edit, id_),
+                      icon=":material/edit:", use_container_width=True)
+        c_hapus.button("Hapus", key=f"hp_{kunci}_{id_}", on_click=atur, args=(k_hapus, id_),
+                       icon=":material/delete:", use_container_width=True)
+
+    if not D["sasaran"]:
+        st.info("Belum ada sasaran strategis. Tambahkan yang pertama di bawah.")
+    for s in urut_sasaran():
+        indikator = s.setdefault("indikator", [])
+        ids_i = {i["id"] for i in indikator}
+        p_ikut = [p for p in D["program"] if p.get("sasaran") == s["id"]]
+        k_ikut = [k for k in D["kegiatan"] if k.get("sasaran") == s["id"] or k.get("indikator") in ids_i]
+        with st.container(key=f"kartu_bd_{s['id']}"):
+            c1, c2, c3 = st.columns([6, 1.5, 1.5], vertical_alignment="center")
+            if st.session_state.get("edit_sas") == s["id"]:
+                e1, e2 = c1.columns([1, 5])
+                no_b = e1.text_input("No.", value=s.get("no", ""), key=f"no_sas_{s['id']}",
+                                     label_visibility="collapsed", placeholder="No.")
+                nm_b = e2.text_input("Sasaran", value=s["nama"], key=f"nm_sas_{s['id']}",
+                                     label_visibility="collapsed")
+                c3.button("Batal", key=f"bt_sas_{s['id']}", on_click=atur, args=("edit_sas", None),
+                          use_container_width=True)
+                if c2.button("Simpan", key=f"sv_sas_{s['id']}", type="primary", use_container_width=True):
+                    nm_b = " ".join(nm_b.split())
+                    if not nm_b:
+                        st.error("Nama sasaran tidak boleh kosong.")
+                    else:
+                        s["no"], s["nama"] = no_b.strip(), nm_b
+                        selesai_simpan("Sasaran diubah.", edit_sas=None)
+            elif st.session_state.get("hapus_sas") == s["id"]:
+                c1.markdown(f"Hapus sasaran **{html.escape(s['nama'])}**? {len(indikator)} indikator ikut terhapus. "
+                            f"{len(p_ikut)} program dan {len(k_ikut)} kegiatan jadi tanpa sasaran.")
+                c3.button("Batal", key=f"bh_sas_{s['id']}", on_click=atur, args=("hapus_sas", None),
+                          use_container_width=True)
+                if c2.button("Ya, hapus", key=f"yh_sas_{s['id']}", type="primary", use_container_width=True):
+                    for p in p_ikut:
+                        p.pop("sasaran", None)
+                    for k in k_ikut:
+                        k.pop("sasaran", None)
+                        k.pop("indikator", None)
+                    D["sasaran"] = [x for x in D["sasaran"] if x["id"] != s["id"]]
+                    selesai_simpan("Sasaran dihapus.", hapus_sas=None)
+            else:
+                c1.markdown(f'<div class="bd-judul">{html.escape(label_sasaran(s))}</div>'
+                            f'<div class="bd-meta">{len(indikator)} indikator · {len(p_ikut)} program · '
+                            f'{len(k_ikut)} kegiatan tertentu</div>', unsafe_allow_html=True)
+                aksi(c2, c3, "sas", s["id"], "edit_sas", "hapus_sas")
+
+            if p_ikut or k_ikut:
+                bagian = []
+                if p_ikut:
+                    bagian.append("**Program:** " + "; ".join(html.escape(p["nama"]) for p in p_ikut))
+                if k_ikut:
+                    bagian.append("**Kegiatan:** " + "; ".join(html.escape(k["nama"]) for k in k_ikut))
+                st.caption("  \n".join(bagian))
+            st.markdown('<div class="bd-garis"></div>', unsafe_allow_html=True)
+            if not indikator:
+                st.caption("Belum ada indikator kinerja.")
+            for i in indikator:
+                n_k = sum(1 for k in D["kegiatan"] if k.get("indikator") == i["id"])
+                i1, i2, i3 = st.columns([6, 1.5, 1.5], vertical_alignment="center")
+                if st.session_state.get("edit_ind") == i["id"]:
+                    nm_b = i1.text_input("Indikator", value=i["nama"], key=f"nm_ind_{i['id']}",
+                                         label_visibility="collapsed")
+                    i3.button("Batal", key=f"bt_ind_{i['id']}", on_click=atur, args=("edit_ind", None),
+                              use_container_width=True)
+                    if i2.button("Simpan", key=f"sv_ind_{i['id']}", type="primary", use_container_width=True):
+                        nm_b = " ".join(nm_b.split())
+                        if not nm_b:
+                            st.error("Nama indikator tidak boleh kosong.")
+                        else:
+                            i["nama"] = nm_b
+                            selesai_simpan("Indikator diubah.", edit_ind=None)
+                elif st.session_state.get("hapus_ind") == i["id"]:
+                    i1.markdown(f"Hapus indikator **{html.escape(i['nama'])}**?"
+                                + (f" {n_k} kegiatan kembali ikut sasaran program." if n_k else ""))
+                    i3.button("Batal", key=f"bh_ind_{i['id']}", on_click=atur, args=("hapus_ind", None),
+                              use_container_width=True)
+                    if i2.button("Ya, hapus", key=f"yh_ind_{i['id']}", type="primary", use_container_width=True):
+                        for k in D["kegiatan"]:
+                            if k.get("indikator") == i["id"]:
+                                k.pop("indikator", None)
+                        s["indikator"] = [x for x in indikator if x["id"] != i["id"]]
+                        selesai_simpan("Indikator dihapus.", hapus_ind=None)
+                else:
+                    i1.markdown(f'<div class="bd-sub"><span class="bd-titik"></span>{html.escape(i["nama"])}'
+                                f'<span class="bd-meta2">{n_k} kegiatan</span></div>', unsafe_allow_html=True)
+                    aksi(i2, i3, "ind", i["id"], "edit_ind", "hapus_ind")
+            with st.form(f"tambah_ind_{s['id']}", clear_on_submit=True, border=False):
+                f1, f2 = st.columns([6, 3], vertical_alignment="bottom")
+                nama = f1.text_input("Tambah indikator", placeholder="Indikator kinerja baru",
+                                     label_visibility="collapsed")
+                if f2.form_submit_button("Tambah indikator", icon=":material/add:", use_container_width=True):
+                    nama = " ".join(nama.split())
+                    if not nama:
+                        st.error("Nama tidak boleh kosong.")
+                    else:
+                        indikator.append({"id": uuid.uuid4().hex[:8], "nama": nama})
+                        selesai_simpan("Indikator ditambahkan.")
+
+    with st.container(key="kartu_bd_baru_sas"):
+        st.markdown('<div class="bd-judul">Tambah sasaran strategis</div>', unsafe_allow_html=True)
+        with st.form("tambah_sasaran", clear_on_submit=True, border=False):
+            f0, f1, f2 = st.columns([1, 6, 3], vertical_alignment="bottom")
+            no = f0.text_input("No.", placeholder="No.", label_visibility="collapsed",
+                               value=str(len(D["sasaran"]) + 1))
+            nama = f1.text_input("Sasaran", placeholder="Sasaran strategis baru", label_visibility="collapsed")
+            if f2.form_submit_button("Tambah sasaran", type="primary", icon=":material/add:",
+                                     use_container_width=True):
+                nama = " ".join(nama.split())
+                if not nama:
+                    st.error("Nama tidak boleh kosong.")
+                else:
+                    D["sasaran"].append({"id": uuid.uuid4().hex[:8], "no": no.strip(), "nama": nama, "indikator": []})
+                    selesai_simpan("Sasaran ditambahkan.")
+
+
 def halaman_struktur():
     """Master data: program, kegiatan, dan sub kegiatan beserta sambungannya."""
     prog, keg, sub = peta_struktur()
@@ -3077,9 +3479,13 @@ def halaman_struktur():
                 for x in sorted(items, key=lambda y: (cabang(level, y), y.get("kode", ""), y["nama"])):
                     r = {"Kode": x.get("kode", ""), judul: x["nama"]}
                     if level == "program":
-                        r["Sasaran"] = x.get("sasaran", "")
+                        sx = next((q for q in D["sasaran"] if q["id"] == x.get("sasaran")), None)
+                        r["Sasaran"] = label_sasaran(sx) if sx else ""
                     if level == "kegiatan":
                         r["Program"] = cabang(level, x)
+                        sx, ix = tautan_sasaran(x, prog.get(x["program"], {}))
+                        r["Ditunjang untuk"] = ((f"{label_sasaran(sx)}" + (f" › {ix['nama']}" if ix else ""))
+                                                + ("" if x.get("sasaran") or x.get("indikator") else " (ikut program)")) if sx else ""
                     if level == "sub":
                         j = cabang(level, x).split(" › ")
                         r.update({"Program": j[0], "Kegiatan": j[1], "Bidang": peta_b.get(x.get("bidang"), "")})
@@ -3123,8 +3529,20 @@ def halaman_struktur():
                                        format_func=lambda i: "Tanpa bidang" if not i else peta_b[i],
                                        key=f"{kunci}_bid")
                 if level == "program":
-                    sas = " ".join(st.text_input("Sasaran (opsional)", value=awal.get("sasaran", ""),
-                                                 key=f"{kunci}_sas").split())
+                    ids_s = [""] + [q["id"] for q in urut_sasaran()]
+                    nm_s = {q["id"]: label_sasaran(q) for q in D["sasaran"]}
+                    sas = st.selectbox("Sasaran strategis yang ditunjang (opsional)", ids_s,
+                                       index=idx(ids_s, awal.get("sasaran", "")),
+                                       format_func=lambda i: "Tanpa sasaran" if not i else nm_s[i],
+                                       key=f"{kunci}_sas")
+                    if not D["sasaran"]:
+                        st.caption("Belum ada sasaran. Buat di Master data > Sasaran strategis.")
+                if level == "kegiatan":
+                    ops_t = opsi_tautan()
+                    sas = st.selectbox("Menunjang sasaran/indikator tertentu (opsional)", list(ops_t),
+                                       index=idx(list(ops_t), nilai_tautan(awal)),
+                                       format_func=ops_t.get, key=f"{kunci}_sas",
+                                       help="Kosongkan agar kegiatan ini ikut sasaran program induknya.")
                 return kode.strip(), " ".join(nama.split()), ind, bid, sas
 
             def cek(kode, nama, ind, kecuali=None):
@@ -3151,6 +3569,8 @@ def halaman_struktur():
                                 baru["program"] = ind
                             if level == "program" and sas:
                                 baru["sasaran"] = sas
+                            if level == "kegiatan":
+                                terapkan_tautan(baru, sas)
                             if level == "sub":
                                 baru["kegiatan"] = ind
                                 if bid:
@@ -3189,6 +3609,7 @@ def halaman_struktur():
                                         x.pop("sasaran", None)
                                 if level == "kegiatan":
                                     x["program"] = ind
+                                    terapkan_tautan(x, sas)
                                 if level == "sub":
                                     x["kegiatan"] = ind
                                     if bid:
@@ -3219,8 +3640,10 @@ def baris_anggaran(tahun: int) -> list:
         s = sub[a["sub"]]
         k = keg.get(s["kegiatan"], {})
         p = prog.get(k.get("program"), {})
+        sx, ix = tautan_sasaran(k, p)
         hasil.append({"a": a, "kode": s.get("kode", ""), "sub": s["nama"], "kegiatan": k.get("nama", TANPA_KEG),
-                      "program": p.get("nama", TANPA_PROG), "sasaran": p.get("sasaran") or TANPA_SAS, "bidang": peta_b.get(s.get("bidang"), TANPA)})
+                      "program": p.get("nama", TANPA_PROG), "sasaran": label_sasaran(sx) if sx else TANPA_SAS,
+                      "indikator": ix["nama"] if ix else TANPA_IND, "bidang": peta_b.get(s.get("bidang"), TANPA)})
     return hasil
 
 
@@ -3510,13 +3933,13 @@ def halaman_anggaran():
                 st.markdown("**Serapan kumulatif (%)**")
                 grafik_persen(dfp, "Periode", "Serapan kumulatif (%)", urut=urutan, tinggi=260)
 
-            tingkat = st.radio("Rekap per", ["Sasaran", "Program", "Kegiatan", "Sub kegiatan", "Bidang"],
+            tingkat = st.radio("Rekap per", ["Sasaran", "Indikator kinerja", "Program", "Kegiatan", "Sub kegiatan", "Bidang"],
                                horizontal=True, key="ang_tingkat")
-            kol_t = {"Sasaran": ["Sasaran"], "Program": ["Program"], "Kegiatan": ["Program", "Kegiatan"], "Bidang": ["Bidang"],
+            kol_t = {"Sasaran": ["Sasaran"], "Indikator kinerja": ["Sasaran", "Indikator kinerja"], "Program": ["Program"], "Kegiatan": ["Program", "Kegiatan"], "Bidang": ["Bidang"],
                      "Sub kegiatan": ["Kode", "Program", "Kegiatan", "Sub kegiatan", "Bidang"]}[tingkat]
 
             def kunci_t(b):
-                return {"Sasaran": (b["sasaran"],), "Program": (b["program"],), "Kegiatan": (b["program"], b["kegiatan"]),
+                return {"Sasaran": (b["sasaran"],), "Indikator kinerja": (b["sasaran"], b["indikator"]), "Program": (b["program"],), "Kegiatan": (b["program"], b["kegiatan"]),
                         "Bidang": (b["bidang"],),
                         "Sub kegiatan": (b["kode"], b["program"], b["kegiatan"], b["sub"], b["bidang"])}[tingkat]
 
@@ -3524,7 +3947,7 @@ def halaman_anggaran():
             for b in daftar:
                 grup.setdefault(kunci_t(b), []).append(b)
             rb, label = [], []
-            for kunci, ks in sorted(grup.items()):
+            for kunci, ks in sorted(grup.items(), key=lambda kv: kunci_alami(kv[0])):
                 p_, r_ = sum(b["a"].get("pagu", 0) for b in ks), sum(real_sd(b["a"], sd) for b in ks)
                 r = dict(zip(kol_t, kunci))
                 if tingkat != "Sub kegiatan":
@@ -3534,7 +3957,7 @@ def halaman_anggaran():
                     r[TW_NAMA[q]] = sum(real_tw(b["a"], q) for b in ks)
                 r.update({"Realisasi": r_, "Sisa": p_ - r_, "Serapan (%)": persen_serap(r_, p_)})
                 rb.append(r)
-                label.append(" › ".join(kunci) if tingkat == "Kegiatan" else kunci[3] if tingkat == "Sub kegiatan"
+                label.append(" › ".join(kunci) if tingkat in ("Kegiatan", "Indikator kinerja") else kunci[3] if tingkat == "Sub kegiatan"
                              else kunci[0])
             dfb = pd.DataFrame(rb)
             uang = [c for c in dfb.columns if c in ("Pagu", "Realisasi", "Sisa") or c.startswith("TW ")]
@@ -3678,10 +4101,14 @@ def halaman_anggaran():
 
 if halaman == ANGGARAN_HAL:
     halaman_anggaran()
+if halaman == ORG_HAL:
+    halaman_organisasi()
 if adalah_admin() and halaman == "Pegawai":
     halaman_pegawai()
 if adalah_admin() and halaman == "Bidang dan sub bidang":
     halaman_bidang()
+if adalah_admin() and halaman == "Sasaran strategis":
+    halaman_sasaran()
 if adalah_admin() and halaman == "Struktur anggaran":
     halaman_struktur()
 if adalah_admin() and halaman == "Komponen data dukung":
