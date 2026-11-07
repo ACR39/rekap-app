@@ -2873,6 +2873,13 @@ def _n(v) -> str:
     return f"{v:.1f}".rstrip("0").rstrip(".")
 
 
+def nomor_baris(n: dict) -> int:
+    try:
+        return max(1, int(n.get("baris", 1) or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
 def svg_bagan(bg: dict):
     """Gambar bagan sebagai SVG. Kembalikan (svg, lebar, tinggi); kosong kalau belum ada kotak."""
     opsi, nodes = bg["opsi"], bg["nodes"]
@@ -2886,7 +2893,7 @@ def svg_bagan(bg: dict):
     if not anak.get(""):
         return "", 0, 0
     GX, GY, GYV, GV0 = 22, 38, 16, 20
-    isi, ukuran, kotak, garis, putus = {}, {}, [], [], []
+    isi, ukuran, kotak, garis, putus, baris_kids = {}, {}, [], [], [], {}
 
     def konten(n):
         inner = W - 2 * PAD
@@ -2929,9 +2936,17 @@ def svg_bagan(bg: dict):
             sh = box_h + GV0 + sum(ukuran[k["id"]][1] for k in kids) + GYV * (len(kids) - 1)
             tot = sw
         else:
-            tot = sum(ukuran[k["id"]][0] for k in kids) + GX * (len(kids) - 1)
+            rows = []
+            for r in sorted({nomor_baris(k) for k in kids}):
+                ks = [k for k in kids if nomor_baris(k) == r]
+                rows.append((ks, sum(ukuran[k["id"]][0] for k in ks) + GX * (len(ks) - 1),
+                             max(ukuran[k["id"]][1] for k in ks)))
+            baris_kids[n["id"]] = rows
+            tot = max(r[1] for r in rows)
             sw = max(W, tot)
-            sh = box_h + GY + max(ukuran[k["id"]][1] for k in kids)
+            if len(rows) > 1 and len(rows[0][0]) == 1:    # batang ke baris bawah lewat di samping kotak tunggal
+                sw = max(sw, ukuran[rows[0][0][0]["id"]][0] + GX)
+            sh = box_h + sum(GY + r[2] for r in rows)
         ukuran[n["id"]] = (sw, sh, box_h, tot)
 
     def taruh(n, cx, y):
@@ -2948,21 +2963,41 @@ def svg_bagan(bg: dict):
                 bawah = yk + ukuran[k["id"]][2]
                 yk += ukuran[k["id"]][1] + GYV
         else:
-            x, ymid, ytop = cx - tot / 2, y + box_h + GY / 2, y + box_h + GY
-            pusat = []
-            for k in kids:
-                pusat.append((k, x + ukuran[k["id"]][0] / 2))
-                x += ukuran[k["id"]][0] + GX
-            xs = [cx] + [kc for k, kc in pusat if not k.get("putus")]
-            garis.append(f"M{_n(cx)},{_n(y + box_h)} V{_n(ymid)}")
-            if len(xs) > 1:
-                garis.append(f"M{_n(min(xs))},{_n(ymid)} H{_n(max(xs))}")
-            for k, kc in pusat:
-                if k.get("putus"):
-                    putus.append(f"M{_n(cx)},{_n(ymid)} H{_n(kc)} V{_n(ytop)}")
+            rows = baris_kids[n["id"]]
+            tx = cx                       # posisi batang menuju baris-baris di bawah
+            if len(rows) > 1:
+                x, batas = cx - rows[0][1] / 2, []
+                for k in rows[0][0]:
+                    batas.append((x, x + ukuran[k["id"]][0]))
+                    x += ukuran[k["id"]][0] + GX
+                if any(a < cx < b for a, b in batas):      # batang tidak boleh menembus kotak baris pertama
+                    cand = [b + GX / 2 for a, b in batas[:-1]] + [batas[0][0] - GX / 2, batas[-1][1] + GX / 2]
+                    tx = min(cand, key=lambda c: abs(c - cx))
+            y_baris, ymid_lalu = y + box_h + GY, None
+            for ri, (ks, tot_r, h_r) in enumerate(rows):
+                ymid = y_baris - GY / 2
+                x, pusat = cx - tot_r / 2, []
+                for k in ks:
+                    pusat.append((k, x + ukuran[k["id"]][0] / 2))
+                    x += ukuran[k["id"]][0] + GX
+                asal = cx if ri == 0 else tx
+                xs = [asal] + [kc for k, kc in pusat if not k.get("putus")]
+                if ri == 0:
+                    garis.append(f"M{_n(cx)},{_n(y + box_h)} V{_n(ymid)}")
+                    if len(rows) > 1:
+                        xs.append(tx)
                 else:
-                    garis.append(f"M{_n(kc)},{_n(ymid)} V{_n(ytop)}")
-                taruh(k, kc, ytop)
+                    garis.append(f"M{_n(tx)},{_n(ymid_lalu)} V{_n(ymid)}")
+                if len(xs) > 1:
+                    garis.append(f"M{_n(min(xs))},{_n(ymid)} H{_n(max(xs))}")
+                for k, kc in pusat:
+                    if k.get("putus"):
+                        putus.append(f"M{_n(asal)},{_n(ymid)} H{_n(kc)} V{_n(y_baris)}")
+                    else:
+                        garis.append(f"M{_n(kc)},{_n(ymid)} V{_n(y_baris)}")
+                    taruh(k, kc, y_baris)
+                ymid_lalu = ymid
+                y_baris += h_r + GY
 
     roots = anak[""]
     for r in roots:
@@ -3055,7 +3090,7 @@ def keturunan_id(nodes: list, nid: str) -> set:
 
 def baru_kotak(**k) -> dict:
     return {"id": uuid.uuid4().hex[:8], "induk": "", "judul": "", "pegawai": [], "teks": "",
-            "warna": "hijau", "susun": "h", "putus": False, **k}
+            "warna": "hijau", "susun": "h", "putus": False, "baris": 1, **k}
 
 
 def seed_dari_bidang() -> list:
@@ -3111,6 +3146,12 @@ def form_kotak(n, induk_baru: str, kunci: str):
                              help="Ke samping: bawahan berjajar. Menurun: bawahan bertumpuk ke bawah (memanjang).")
         putus = c3.checkbox("Garis putus-putus", value=(n or {}).get("putus", False),
                             help="Dipakai untuk hubungan koordinasi/fungsional.")
+        baris = st.selectbox("Posisi di bawah atasan", [1, 2, 3, 4], index=idx([1, 2, 3, 4], nomor_baris(n or {})),
+                             format_func=lambda i: "Baris 1 (sejajar, tepat di bawah atasan)" if i == 1 else
+                             f"Baris {i} (lebih bawah, setelah baris {i - 1})",
+                             help="Kotak dengan nomor baris sama berjajar ke samping. Nomor lebih besar diletakkan di "
+                                  "bawahnya, dihubungkan lewat garis dari atasan. Tidak berlaku bila atasan menyusun "
+                                  "bawahan 'Menurun ke bawah'.")
         induk = induk_baru
         if n:
             terlarang = keturunan_id(nodes, n["id"]) | {n["id"]}
@@ -3131,7 +3172,7 @@ def form_kotak(n, induk_baru: str, kunci: str):
             st.error("Judul kotak tidak boleh kosong.")
             return
         isi = {"judul": judul, "pegawai": pegawai, "teks": teks.strip(), "warna": warna, "susun": susun,
-               "putus": putus, "induk": induk}
+               "putus": putus, "induk": induk, "baris": baris}
         if n:
             n.update(isi)
         else:
@@ -3213,6 +3254,7 @@ def editor_bagan():
                     f'<span class="bg-sw" style="background:{sw}"></span><b>{html.escape(n["judul"])}</b>'
                     + (f'<span class="bg-p">{html.escape(nama_p)}</span>' if nama_p else "")
                     + ('<span class="bg-p">menurun</span>' if n.get("susun") == "v" else "")
+                    + (f'<span class="bg-p">baris {nomor_baris(n)}</span>' if nomor_baris(n) > 1 else "")
                     + ('<span class="bg-p">putus-putus</span>' if n.get("putus") else "") + "</div>",
                     unsafe_allow_html=True)
                 if c[1].button("", key=f"bgup_{n['id']}", icon=":material/arrow_upward:", disabled=pos == 0,
