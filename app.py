@@ -13,7 +13,9 @@ import html
 import json
 import os
 import re
+import textwrap
 import time
+from xml.sax.saxutils import escape as _xml
 import uuid
 import base64 as _b64
 import calendar
@@ -73,6 +75,10 @@ st.markdown("""
 .bd-titik{width:7px;height:7px;border-radius:50%;background:#34a874;flex:none}
 .bd-meta2{margin-left:auto;font-size:.76rem;color:#64748b;background:#f1f5f9;border-radius:999px;padding:.05rem .6rem}
 [class*="st-key-kartu_bd"] [data-testid="stMetric"]{background:transparent}
+.bg-row{display:flex;align-items:center;gap:.5rem;font-size:.92rem;flex-wrap:wrap}
+.bg-row b{color:#14352a}
+.bg-sw{width:12px;height:12px;border-radius:3px;flex:none;border:1px solid #94a3b8}
+.bg-p{font-size:.76rem;color:#64748b;background:#f1f5f9;border-radius:999px;padding:.05rem .6rem}
 .bd-kep{font-size:.76rem;color:#256b4a;background:#e8f3ec;border-radius:999px;padding:.05rem .6rem}
 .org{overflow-x:auto;padding:.4rem 0 1rem}
 .org-in{width:max-content;margin:0 auto}
@@ -377,6 +383,7 @@ def data_kosong() -> dict:
         "triwulan": {},  # {"2026-T1": {"<id pegawai>": ["realisasi", "bukti", ...]}}
         "triwulan_ket": {},  # {"2026-T1": {"<id pegawai>": "teks keterangan"}}
         "absen": {},     # {"2026-10-16": {"<id pegawai>": "Cuti" atau "DL"}}
+        "bagan": {},       # struktur organisasi bebas (lihat bagan_data)
         "organisasi": {},  # {"nama","pimpinan"(id pegawai),"jabatan"}  (puncak bagan struktur organisasi)
         "sasaran": [],     # [{"id","no","nama","indikator":[{"id","nama"}]}]  (sasaran strategis)
         "program": [],     # [{"id","kode","nama","sasaran"(id, opsional)}]  (struktur anggaran)
@@ -2829,14 +2836,442 @@ def bagan_organisasi(tampil_staf: bool = True) -> tuple:
     return bagan, belum
 
 
+# ------------------------------------------------------------ bagan organisasi bebas (editor)
+# D["bagan"] = {"judul","subjudul","opsi":{"lebar","nip","golongan","jabatan"},
+#               "nodes":[{"id","induk"(id/""),"judul","pegawai":[id],"teks","warna","susun":"h"|"v","putus":bool}]}
+# Urutan kotak bersaudara = urutan dalam daftar nodes. Digambar sebagai SVG supaya bisa diunduh.
+WARNA_BAGAN = {"hijau": ("#256b4a", "#ffffff"), "gelap": ("#14352a", "#ffffff"), "merah": ("#c0392b", "#ffffff"),
+               "biru": ("#1f4e9c", "#ffffff"), "oranye": ("#e8761c", "#ffffff"), "ungu": ("#6d3fa0", "#ffffff"),
+               "abu": ("#d9dee7", "#1f2937"), "putih": ("#ffffff", "#1f2937")}
+NAMA_WARNA = {"hijau": "Hijau", "gelap": "Hijau tua", "merah": "Merah", "biru": "Biru", "oranye": "Oranye",
+              "ungu": "Ungu", "abu": "Abu-abu", "putih": "Putih"}
+SUSUN_NAMA = {"h": "Ke samping", "v": "Menurun ke bawah"}
+
+
+def bagan_data() -> dict:
+    b = D.setdefault("bagan", {})
+    b.setdefault("judul", "")
+    b.setdefault("subjudul", "")
+    b.setdefault("nodes", [])
+    o = b.setdefault("opsi", {})
+    o.setdefault("lebar", 210)
+    o.setdefault("nip", True)
+    o.setdefault("golongan", True)
+    o.setdefault("jabatan", False)
+    return b
+
+
+def _bungkus(teks, lebar_px, fs, tebal=False) -> list:
+    per = max(4, int(lebar_px / (fs * (0.62 if tebal else 0.56))))
+    hasil = []
+    for baris in str(teks).splitlines() or [""]:
+        hasil += textwrap.wrap(baris, per, break_long_words=True) or [""]
+    return hasil
+
+
+def _n(v) -> str:
+    return f"{v:.1f}".rstrip("0").rstrip(".")
+
+
+def svg_bagan(bg: dict):
+    """Gambar bagan sebagai SVG. Kembalikan (svg, lebar, tinggi); kosong kalau belum ada kotak."""
+    opsi, nodes = bg["opsi"], bg["nodes"]
+    W, PAD = int(opsi.get("lebar", 210)), 10
+    peta_p = {p["id"]: p for p in D["pekerja"]}
+    ids = {n["id"] for n in nodes}
+    anak: dict = {}
+    for n in nodes:
+        ind = n.get("induk") if n.get("induk") in ids and n.get("induk") != n["id"] else ""
+        anak.setdefault(ind, []).append(n)
+    if not anak.get(""):
+        return "", 0, 0
+    GX, GY, GYV, GV0 = 22, 38, 16, 20
+    isi, ukuran, kotak, garis, putus = {}, {}, [], [], []
+
+    def konten(n):
+        inner = W - 2 * PAD
+        ju = _bungkus(n.get("judul", "").upper(), inner, 11, True)
+        hh = max(28, len(ju) * 14 + 14)
+        baris = []
+        for pid in n.get("pegawai", []):
+            p = peta_p.get(pid)
+            if not p:
+                continue
+            for i, t in enumerate(_bungkus(nama_lengkap(p), inner, 11, True)):
+                baris.append((t, 11, True, "#14352a", 14, 7 if i == 0 else 0))
+            det = []
+            if opsi.get("nip") and p.get("nip"):
+                det.append(f"NIP {p['nip']}")
+            if opsi.get("golongan") and p.get("golongan"):
+                det.append(f"Gol. {p['golongan']}")
+            if opsi.get("jabatan") and p.get("jabatan"):
+                det.append(p["jabatan"])
+            for d in det:
+                for t in _bungkus(d, inner, 9.5):
+                    baris.append((t, 9.5, False, "#475569", 12, 0))
+        if n.get("teks", "").strip():
+            for i, t in enumerate(_bungkus(n["teks"], inner, 10)):
+                baris.append((t, 10, False, "#334155", 13, 6 if i == 0 else 0))
+        bh = sum(b[4] + b[5] for b in baris) + 12 if baris else 0
+        return ju, hh, baris, bh
+
+    def ukur(n):
+        isi[n["id"]] = konten(n)
+        box_h = isi[n["id"]][1] + isi[n["id"]][3]
+        kids = anak.get(n["id"], [])
+        if not kids:
+            ukuran[n["id"]] = (W, box_h, box_h, W)
+            return
+        for k in kids:
+            ukur(k)
+        if n.get("susun", "h") == "v":
+            sw = max(W, max(ukuran[k["id"]][0] for k in kids))
+            sh = box_h + GV0 + sum(ukuran[k["id"]][1] for k in kids) + GYV * (len(kids) - 1)
+            tot = sw
+        else:
+            tot = sum(ukuran[k["id"]][0] for k in kids) + GX * (len(kids) - 1)
+            sw = max(W, tot)
+            sh = box_h + GY + max(ukuran[k["id"]][1] for k in kids)
+        ukuran[n["id"]] = (sw, sh, box_h, tot)
+
+    def taruh(n, cx, y):
+        sw, sh, box_h, tot = ukuran[n["id"]]
+        kotak.append((n, cx - W / 2, y))
+        kids = anak.get(n["id"], [])
+        if not kids:
+            return
+        if n.get("susun", "h") == "v":
+            yk, bawah = y + box_h + GV0, y + box_h
+            for k in kids:
+                (putus if k.get("putus") else garis).append(f"M{_n(cx)},{_n(bawah)} V{_n(yk)}")
+                taruh(k, cx, yk)
+                bawah = yk + ukuran[k["id"]][2]
+                yk += ukuran[k["id"]][1] + GYV
+        else:
+            x, ymid, ytop = cx - tot / 2, y + box_h + GY / 2, y + box_h + GY
+            pusat = []
+            for k in kids:
+                pusat.append((k, x + ukuran[k["id"]][0] / 2))
+                x += ukuran[k["id"]][0] + GX
+            xs = [cx] + [kc for k, kc in pusat if not k.get("putus")]
+            garis.append(f"M{_n(cx)},{_n(y + box_h)} V{_n(ymid)}")
+            if len(xs) > 1:
+                garis.append(f"M{_n(min(xs))},{_n(ymid)} H{_n(max(xs))}")
+            for k, kc in pusat:
+                if k.get("putus"):
+                    putus.append(f"M{_n(cx)},{_n(ymid)} H{_n(kc)} V{_n(ytop)}")
+                else:
+                    garis.append(f"M{_n(kc)},{_n(ymid)} V{_n(ytop)}")
+                taruh(k, kc, ytop)
+
+    roots = anak[""]
+    for r in roots:
+        ukur(r)
+    ANTAR, M = 40, 24
+    total_w = sum(ukuran[r["id"]][0] for r in roots) + ANTAR * (len(roots) - 1)
+    judul, sub = bg.get("judul", "").strip(), bg.get("subjudul", "").strip()
+    tinggi_judul = (34 if judul else 0) + (22 if sub else 0)
+    tinggi_judul += 18 if tinggi_judul else 0
+    lebar_judul = max(len(judul) * 12.5, len(sub) * 7.5)
+    cw = max(total_w, lebar_judul) + 2 * M
+    x = M + (cw - 2 * M - total_w) / 2
+    for r in roots:
+        taruh(r, x + ukuran[r["id"]][0] / 2, M + tinggi_judul)
+        x += ukuran[r["id"]][0] + ANTAR
+    ch = 2 * M + tinggi_judul + max(ukuran[r["id"]][1] for r in roots)
+    cw, ch = int(cw), int(ch)
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{cw}" height="{ch}" viewBox="0 0 {cw} {ch}" '
+           f'font-family="Inter, Segoe UI, Arial, sans-serif"><rect width="100%" height="100%" fill="#ffffff"/>']
+    if judul:
+        out.append(f'<text x="{_n(cw / 2)}" y="{M + 22}" text-anchor="middle" font-size="20" font-weight="800" '
+                   f'fill="#14352a">{_xml(judul)}</text>')
+    if sub:
+        out.append(f'<text x="{_n(cw / 2)}" y="{M + (46 if judul else 16)}" text-anchor="middle" font-size="13" '
+                   f'fill="#475569">{_xml(sub)}</text>')
+    if garis:
+        out.append(f'<path d="{" ".join(garis)}" fill="none" stroke="#94a3b8" stroke-width="2"/>')
+    if putus:
+        out.append(f'<path d="{" ".join(putus)}" fill="none" stroke="#94a3b8" stroke-width="2" '
+                   f'stroke-dasharray="6 4"/>')
+    for n, bx, by in kotak:
+        ju, hh, baris, bh = isi[n["id"]]
+        fill, fg = WARNA_BAGAN.get(n.get("warna", "hijau"), WARNA_BAGAN["hijau"])
+        dash = ' stroke-dasharray="5 3"' if n.get("putus") else ""
+        x0, y0, r = _n(bx), _n(by), 7
+        if baris:
+            out.append(f'<rect x="{x0}" y="{y0}" width="{W}" height="{hh + bh}" rx="{r}" fill="#fff" '
+                       f'stroke="#94a3b8" stroke-width="1.5"{dash}/>')
+            out.append(f'<path d="M{x0},{_n(by + hh)} V{_n(by + r)} Q{x0},{y0} {_n(bx + r)},{y0} H{_n(bx + W - r)} '
+                       f'Q{_n(bx + W)},{y0} {_n(bx + W)},{_n(by + r)} V{_n(by + hh)} Z" fill="{fill}"/>')
+        else:
+            out.append(f'<rect x="{x0}" y="{y0}" width="{W}" height="{hh}" rx="{r}" fill="{fill}" '
+                       f'stroke="#94a3b8" stroke-width="1.5"{dash}/>')
+        ty = by + (hh - len(ju) * 14) / 2 + 11
+        for t in ju:
+            out.append(f'<text x="{_n(bx + W / 2)}" y="{_n(ty)}" text-anchor="middle" font-size="11" '
+                       f'font-weight="700" fill="{fg}">{_xml(t)}</text>')
+            ty += 14
+        yy = by + hh + 4
+        for t, fs, tebal, warna, lh, gap in baris:
+            yy += gap
+            out.append(f'<text x="{_n(bx + W / 2)}" y="{_n(yy + lh - 3)}" text-anchor="middle" font-size="{fs}" '
+                       f'font-weight="{700 if tebal else 400}" fill="{warna}">{_xml(t)}</text>')
+            yy += lh
+    out.append("</svg>")
+    return "".join(out), cw, ch
+
+
+def tampilkan_bagan_bebas():
+    bg = bagan_data()
+    svg, w, h = svg_bagan(bg)
+    if not svg:
+        st.info("Struktur masih kosong.")
+        return
+    k1, k2 = st.columns([3, 1], vertical_alignment="center")
+    skala = k1.slider("Skala tampilan", 30, 150, 100, step=10, format="%d%%", key="org_skala")
+    k2.download_button("Unduh gambar (SVG)", data=svg, file_name="struktur-organisasi.svg",
+                       mime="image/svg+xml", icon=":material/download:", use_container_width=True)
+    lebar = int(w * skala / 100)
+    svg_css = svg.replace("<svg ", '<svg style="width:100%;height:auto;display:block" ', 1)
+    isi_html = ('<div style="overflow:auto;border:1px solid #e3e7ee;border-radius:12px;background:#fff">'
+                f'<div style="width:{lebar}px;margin:0 auto">{svg_css}</div></div>')
+    tinggi = min(int(h * skala / 100) + 24, 950)
+    if hasattr(st, "iframe"):    # Streamlit baru
+        st.iframe(isi_html, height=tinggi)
+    else:
+        st.components.v1.html(isi_html, height=tinggi, scrolling=True)
+
+
+def keturunan_id(nodes: list, nid: str) -> set:
+    hasil, tumpuk = set(), [nid]
+    while tumpuk:
+        cur = tumpuk.pop()
+        for x in nodes:
+            if x.get("induk") == cur and x["id"] not in hasil:
+                hasil.add(x["id"])
+                tumpuk.append(x["id"])
+    return hasil
+
+
+def baru_kotak(**k) -> dict:
+    return {"id": uuid.uuid4().hex[:8], "induk": "", "judul": "", "pegawai": [], "teks": "",
+            "warna": "hijau", "susun": "h", "putus": False, **k}
+
+
+def seed_dari_bidang() -> list:
+    """Buat struktur awal dari bidang, sub bidang, kepala, dan staf yang sudah ada."""
+    org = D.get("organisasi") or {}
+    pim = org.get("pimpinan")
+    akar = baru_kotak(judul=org.get("jabatan") or org.get("nama") or "Pimpinan",
+                      pegawai=[pim] if pim else [], warna="gelap")
+    hasil = [akar]
+    for b in D["bidang"]:
+        ang = [p for p in anggota_bidang(b["id"]) if p["id"] != pim]
+        kb = kepala_dari(b, ang)
+        nb = baru_kotak(induk=akar["id"], judul=f"Kepala {b['nama']}", pegawai=[kb["id"]] if kb else [], susun="v")
+        hasil.append(nb)
+        for x in D["subbidang"]:
+            if x["bidang"] != b["id"]:
+                continue
+            asub = [p for p in ang if p.get("subbidang") == x["id"] and (not kb or p["id"] != kb["id"])]
+            ks = kepala_dari(x, asub)
+            ns = baru_kotak(induk=nb["id"], judul=f"Kepala {x['nama']}", pegawai=[ks["id"]] if ks else [],
+                            warna="biru")
+            hasil.append(ns)
+            staf = urut_nama([p for p in asub if not ks or p["id"] != ks["id"]])
+            if staf:
+                hasil.append(baru_kotak(induk=ns["id"], judul="Staf", pegawai=[p["id"] for p in staf], warna="abu"))
+        langsung = urut_nama([p for p in ang if sub_dari(p) is None and (not kb or p["id"] != kb["id"])])
+        if langsung:
+            hasil.append(baru_kotak(induk=nb["id"], judul="Staf", pegawai=[p["id"] for p in langsung], warna="abu"))
+    return hasil
+
+
+def form_kotak(n, induk_baru: str, kunci: str):
+    """Formulir tambah (n=None) atau ubah satu kotak."""
+    bg = bagan_data()
+    nodes = bg["nodes"]
+    aktif_p = urut_nama([p for p in D["pekerja"] if aktif(p)])
+    peta = {p["id"]: nama_lengkap(p) for p in D["pekerja"]}
+    ids_p = [p["id"] for p in aktif_p] + [i for i in (n or {}).get("pegawai", []) if i in peta and
+                                          i not in {p["id"] for p in aktif_p}]
+    with st.form(f"fk_{kunci}", border=True):
+        judul = st.text_input("Judul kotak (jabatan atau unit)", value=(n or {}).get("judul", ""),
+                              placeholder="Contoh: Kepala Bidang Pelayaran")
+        pegawai = st.multiselect("Pegawai di kotak ini (boleh lebih dari satu, boleh kosong)", ids_p,
+                                 default=[i for i in (n or {}).get("pegawai", []) if i in ids_p],
+                                 format_func=peta.get, placeholder="Pilih pegawai")
+        teks = st.text_area("Teks tambahan (opsional)", value=(n or {}).get("teks", ""), height=70,
+                            placeholder="Contoh: Staf Pelaksana PNS")
+        c1, c2, c3 = st.columns(3)
+        warna = c1.selectbox("Warna judul", list(WARNA_BAGAN), format_func=NAMA_WARNA.get,
+                             index=idx(list(WARNA_BAGAN), (n or {}).get("warna", "hijau")))
+        susun = c2.selectbox("Susunan bawahan", ["h", "v"], format_func=SUSUN_NAMA.get,
+                             index=idx(["h", "v"], (n or {}).get("susun", "h")),
+                             help="Ke samping: bawahan berjajar. Menurun: bawahan bertumpuk ke bawah (memanjang).")
+        putus = c3.checkbox("Garis putus-putus", value=(n or {}).get("putus", False),
+                            help="Dipakai untuk hubungan koordinasi/fungsional.")
+        induk = induk_baru
+        if n:
+            terlarang = keturunan_id(nodes, n["id"]) | {n["id"]}
+            opsi = [""] + [x["id"] for x in nodes if x["id"] not in terlarang]
+            nm = {x["id"]: x["judul"] or "(tanpa judul)" for x in nodes}
+            induk = st.selectbox("Berada di bawah", opsi, index=idx(opsi, n.get("induk", "")),
+                                 format_func=lambda i: "(Puncak, tanpa atasan)" if not i else nm[i])
+        b1, b2, _ = st.columns([1, 1, 4])
+        simpan_ = b1.form_submit_button("Simpan", type="primary")
+        batal_ = b2.form_submit_button("Batal")
+    if batal_:
+        st.session_state.bg_edit = None
+        st.session_state.bg_tambah = None
+        st.rerun()
+    if simpan_:
+        judul = " ".join(judul.split())
+        if not judul:
+            st.error("Judul kotak tidak boleh kosong.")
+            return
+        isi = {"judul": judul, "pegawai": pegawai, "teks": teks.strip(), "warna": warna, "susun": susun,
+               "putus": putus, "induk": induk}
+        if n:
+            n.update(isi)
+        else:
+            nodes.append(baru_kotak(**isi))
+        selesai_simpan("Kotak disimpan.", bg_edit=None, bg_tambah=None)
+
+
+def editor_bagan():
+    bg = bagan_data()
+    nodes, opsi = bg["nodes"], bg["opsi"]
+    if nodes:
+        tampilkan_bagan_bebas()
+    else:
+        st.info("Belum ada struktur bebas. Mulai dari bidang dan sub bidang yang sudah ada, atau dari kotak kosong. "
+                "Selama kosong, halaman Bagan memakai bagan otomatis.")
+        with st.container(key="kartu_bd_bagan_awal"):
+            a1, a2 = st.columns(2)
+            if a1.button("Buat dari bidang dan sub bidang", type="primary", icon=":material/auto_awesome:",
+                         use_container_width=True, disabled=not D["bidang"] and not D.get("organisasi")):
+                bg["nodes"] = seed_dari_bidang()
+                selesai_simpan("Struktur dibuat dari bidang dan sub bidang.")
+            if a2.button("Mulai dari kotak kosong", icon=":material/add_box:", use_container_width=True):
+                st.session_state.bg_tambah = "__puncak__"
+                st.rerun()
+
+    with st.container(key="kartu_bd_bagan_tampilan"):
+        st.markdown('<div class="bd-judul">Judul dan isi kotak</div>', unsafe_allow_html=True)
+        with st.form("bagan_tampilan", border=False):
+            t1, t2 = st.columns(2)
+            ju = t1.text_input("Judul bagan", value=bg.get("judul", ""),
+                               placeholder="Contoh: Struktur Organisasi Perangkat Daerah")
+            sj = t2.text_input("Subjudul", value=bg.get("subjudul", ""), placeholder="Contoh: Dinas Perhubungan Provinsi")
+            lebar = st.slider("Lebar kotak", 150, 320, int(opsi.get("lebar", 210)), step=10)
+            k1, k2, k3 = st.columns(3)
+            cn = k1.checkbox("Tampilkan NIP", value=opsi.get("nip", True))
+            cg = k2.checkbox("Tampilkan golongan", value=opsi.get("golongan", True))
+            cj = k3.checkbox("Tampilkan jabatan pegawai", value=opsi.get("jabatan", False))
+            if st.form_submit_button("Simpan tampilan", type="primary"):
+                bg["judul"], bg["subjudul"] = ju.strip(), sj.strip()
+                opsi.update({"lebar": lebar, "nip": cn, "golongan": cg, "jabatan": cj})
+                selesai_simpan("Tampilan disimpan.")
+
+    ids = {n["id"] for n in nodes}
+    urutan = []
+
+    def jalan(induk, depth):
+        for n in nodes:
+            ind = n.get("induk") if n.get("induk") in ids else ""
+            if ind == induk and n["id"] not in {u[0]["id"] for u in urutan}:
+                urutan.append((n, depth))
+                jalan(n["id"], depth + 1)
+
+    jalan("", 0)
+    peta = {p["id"]: nama_lengkap(p) for p in D["pekerja"]}
+    with st.container(key="kartu_bd_bagan_daftar"):
+        st.markdown('<div class="bd-judul">Kotak dalam struktur</div>'
+                    '<div class="bd-meta">Atur isi, urutan, dan susunan tiap kotak. Panah mengubah urutan di antara '
+                    'kotak yang sejajar.</div>', unsafe_allow_html=True)
+        for n, depth in urutan:
+            saudara = [x for x in nodes if (x.get("induk") if x.get("induk") in ids else "") ==
+                       (n.get("induk") if n.get("induk") in ids else "")]
+            pos = saudara.index(n)
+            c = st.columns([6, .7, .7, 1.9, 1.4, 1.4], vertical_alignment="center")
+            if st.session_state.get("bg_hapus") == n["id"]:
+                jml = len(keturunan_id(nodes, n["id"]))
+                c[0].markdown(f"Hapus kotak **{html.escape(n['judul'])}**"
+                              + (f" beserta {jml} kotak di bawahnya?" if jml else "?"))
+                c[5].button("Batal", key=f"bgbh_{n['id']}", on_click=atur, args=("bg_hapus", None),
+                            use_container_width=True)
+                if c[4].button("Ya, hapus", key=f"bgyh_{n['id']}", type="primary", use_container_width=True):
+                    buang = keturunan_id(nodes, n["id"]) | {n["id"]}
+                    bg["nodes"] = [x for x in nodes if x["id"] not in buang]
+                    selesai_simpan("Kotak dihapus.", bg_hapus=None)
+            else:
+                nama_p = ", ".join(peta[i] for i in n.get("pegawai", []) if i in peta)
+                sw = WARNA_BAGAN.get(n.get("warna", "hijau"), WARNA_BAGAN["hijau"])[0]
+                c[0].markdown(
+                    f'<div class="bg-row" style="padding-left:{depth * 24}px">'
+                    f'<span class="bg-sw" style="background:{sw}"></span><b>{html.escape(n["judul"])}</b>'
+                    + (f'<span class="bg-p">{html.escape(nama_p)}</span>' if nama_p else "")
+                    + ('<span class="bg-p">menurun</span>' if n.get("susun") == "v" else "")
+                    + ('<span class="bg-p">putus-putus</span>' if n.get("putus") else "") + "</div>",
+                    unsafe_allow_html=True)
+                if c[1].button("", key=f"bgup_{n['id']}", icon=":material/arrow_upward:", disabled=pos == 0,
+                               use_container_width=True):
+                    a, b = nodes.index(n), nodes.index(saudara[pos - 1])
+                    nodes[a], nodes[b] = nodes[b], nodes[a]
+                    selesai_simpan("Urutan diubah.")
+                if c[2].button("", key=f"bgdn_{n['id']}", icon=":material/arrow_downward:",
+                               disabled=pos == len(saudara) - 1, use_container_width=True):
+                    a, b = nodes.index(n), nodes.index(saudara[pos + 1])
+                    nodes[a], nodes[b] = nodes[b], nodes[a]
+                    selesai_simpan("Urutan diubah.")
+                c[3].button("Bawahan", key=f"bgad_{n['id']}", icon=":material/add:", use_container_width=True,
+                            on_click=lambda i=n["id"]: st.session_state.update(bg_tambah=i, bg_edit=None))
+                c[4].button("Ubah", key=f"bged_{n['id']}", icon=":material/edit:", use_container_width=True,
+                            on_click=lambda i=n["id"]: st.session_state.update(bg_edit=i, bg_tambah=None))
+                c[5].button("Hapus", key=f"bghp_{n['id']}", icon=":material/delete:", use_container_width=True,
+                            on_click=atur, args=("bg_hapus", n["id"]))
+            if st.session_state.get("bg_edit") == n["id"]:
+                form_kotak(n, "", f"ubah_{n['id']}")
+            if st.session_state.get("bg_tambah") == n["id"]:
+                form_kotak(None, n["id"], f"tambah_{n['id']}")
+        if st.session_state.get("bg_tambah") == "__puncak__":
+            form_kotak(None, "", "puncak")
+        elif nodes:
+            st.button("Tambah kotak puncak", key="bg_tambah_puncak", icon=":material/add:",
+                      on_click=lambda: st.session_state.update(bg_tambah="__puncak__", bg_edit=None))
+    if nodes:
+        with st.container(key="kartu_bd_bagan_reset"):
+            st.markdown('<div class="bd-judul">Kembali ke bagan otomatis</div>'
+                        '<div class="bd-meta">Menghapus seluruh struktur bebas di atas. Data pegawai, bidang, dan '
+                        'kepala tidak ikut terhapus.</div>', unsafe_allow_html=True)
+            with st.form("bagan_reset", border=False):
+                yakin = st.checkbox("Ya, hapus seluruh struktur bebas")
+                if st.form_submit_button("Hapus struktur bebas"):
+                    if not yakin:
+                        st.error("Centang dulu kotak konfirmasi.")
+                    else:
+                        bg["nodes"] = []
+                        selesai_simpan("Struktur bebas dihapus.")
+
+
 def halaman_organisasi():
     org = D.get("organisasi") or {}
-    if not D["bidang"]:
+    if not D["bidang"] and not bagan_data()["nodes"]:
         st.info("Belum ada bidang. Buat bidang di Master data > Bidang dan sub bidang, tempatkan pegawai "
                 "di formulir pegawai, lalu tentukan kepalanya.")
-    o1, o2 = st.columns([1, 1], vertical_alignment="center")
-    tampilan = o1.radio("Tampilan", ["Bagan", "Daftar"], horizontal=True, key="org_tampil",
-                        label_visibility="collapsed")
+    manual = bool(bagan_data()["nodes"])
+    pilihan = ["Bagan", "Daftar"] + (["Ubah struktur"] if adalah_admin() else [])
+    if st.session_state.get("org_tampil") not in pilihan:
+        st.session_state.org_tampil = "Bagan"
+    o1, o2 = st.columns([1.6, 1], vertical_alignment="center")
+    tampilan = o1.radio("Tampilan", pilihan, horizontal=True, key="org_tampil", label_visibility="collapsed")
+    if tampilan == "Ubah struktur":
+        editor_bagan()
+        return
+    if manual and tampilan == "Bagan":
+        tampilkan_bagan_bebas()
+        return
     tampil_staf = o2.toggle("Tampilkan staf", value=True, key="org_staf",
                             help="Matikan untuk hanya menampilkan kepala; staf cukup ditulis jumlahnya.")
     bagan, belum = bagan_organisasi(tampil_staf)
